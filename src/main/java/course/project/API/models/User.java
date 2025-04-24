@@ -7,12 +7,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.Collections;
 
-import jakarta.persistence.*;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
-
-import java.util.Collection;
-import java.util.Collections;
 
 @Entity
 @Table(name = "users")
@@ -28,15 +22,20 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private String password;
 
-    private String role = "USER";
+    @Column
+    private String name;
+
+    @Column
+    private String avatarURL;
 
     public User() {
     }
 
-    public User(String username, String password, String role) {
+    public User(String username, String password) {
         this.username = username;
         this.password = password;
-        this.role = role;
+        this.name = "user" + (int)(Math.random() * 1000000);
+        this.avatarURL = "https://api.dicebear.com/7.x/avataaars/svg?seed=" + username;
     }
 
     public Long getId() {
@@ -64,15 +63,23 @@ public class User implements UserDetails {
         this.password = password;
     }
 
-    public String getRole() {
-        return role;
+    public String getName() {
+        return name;
     }
 
-    public void setRole(String role) {
-        this.role = role;
+    public void setName(String name) {
+        this.name = name;
     }
 
-    // --- Реализация интерфейса UserDetails ---
+    public String getAvatarURL() {
+        return avatarURL;
+    }
+
+    public void setAvatarURL(String avatarURL) {
+        this.avatarURL = avatarURL;
+    }
+
+    // Это от интерфейса UserDetails
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

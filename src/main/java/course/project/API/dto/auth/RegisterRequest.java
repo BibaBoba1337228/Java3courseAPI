@@ -1,8 +1,13 @@
 package course.project.API.dto.auth;
 
+import jakarta.validation.constraints.NotEmpty;
+
 public class RegisterRequest {
+    @NotEmpty
     private String username;
+    @NotEmpty
     private String password;
+
 
     public RegisterRequest() {}
 
@@ -11,4 +16,5 @@ public class RegisterRequest {
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
 }

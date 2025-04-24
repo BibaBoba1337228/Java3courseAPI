@@ -22,8 +22,11 @@ public class AuthService {
         }
 
         String encodedPassword = passwordEncoder.encode(rawPassword);
-        User newUser = new User(username, encodedPassword, "USER");
+        User newUser = new User(username, encodedPassword);
         return userRepository.save(newUser);
     }
 
+    public User updateUser(User user) {
+        return userRepository.save(user);
+    }
 }
