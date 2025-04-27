@@ -7,15 +7,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.security.Principal;
+import course.project.API.repositories.UserRepository;
 
 @RestController
 @RequestMapping("/api/projects")
 public class ProjectController {
     private final ProjectService projectService;
+    private final UserRepository userRepository;
 
     @Autowired
-    public ProjectController(ProjectService projectService) {
+    public ProjectController(ProjectService projectService, UserRepository userRepository) {
         this.projectService = projectService;
+        this.userRepository = userRepository;
     }
 
     @GetMapping
@@ -30,9 +34,16 @@ public class ProjectController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/my")
+    public List<ProjectDTO> getMyProjects(Principal principal) {
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        return projectService.getMyProjects(user.getId());
+    }
+
     @PostMapping
-    public ProjectDTO createProject(@RequestBody ProjectDTO projectDTO) {
-        return projectService.createProject(projectDTO);
+    public ProjectDTO createProject(@RequestBody ProjectDTO projectDTO, Principal principal) {
+        return projectService.createProject(projectDTO, principal.getName());
     }
 
     @PutMapping("/{id}")

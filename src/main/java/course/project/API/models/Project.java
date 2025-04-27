@@ -25,6 +25,10 @@ public class Project {
     )
     private Set<User> participants = new HashSet<>();
 
+    @ManyToOne
+    @JoinColumn(name = "owner_id")
+    private User owner;
+
     public Project() {
     }
 
@@ -71,5 +75,13 @@ public class Project {
 
     public void removeParticipant(User user) {
         participants.remove(user);
+    }
+
+    public User getOwner() {
+        return owner;
+    }
+
+    public void setOwner(User owner) {
+        this.owner = owner;
     }
 } 

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.security.Principal;
 
 @Service
 public class ProjectService {
@@ -38,8 +39,11 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectDTO createProject(ProjectDTO projectDTO) {
+    public ProjectDTO createProject(ProjectDTO projectDTO, String username) {
+        User owner = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("User not found"));
         Project project = new Project(projectDTO.getTitle(), projectDTO.getDescription());
+        project.setOwner(owner);
         if (projectDTO.getParticipantIds() != null) {
             Set<User> participants = new HashSet<>();
             for (Long userId : projectDTO.getParticipantIds()) {
@@ -93,6 +97,11 @@ public class ProjectService {
                         }));
     }
 
+    public List<ProjectDTO> getMyProjects(Long userId) {
+        return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
+            .stream().map(this::convertToDTO).collect(Collectors.toList());
+    }
+
     private ProjectDTO convertToDTO(Project project) {
         Set<Long> participantIds = project.getParticipants().stream()
                 .map(User::getId)
@@ -101,7 +110,8 @@ public class ProjectService {
                 project.getId(),
                 project.getTitle(),
                 project.getDescription(),
-                participantIds
+                participantIds,
+                project.getOwner() != null ? project.getOwner().getId() : null
         );
     }
 } 
