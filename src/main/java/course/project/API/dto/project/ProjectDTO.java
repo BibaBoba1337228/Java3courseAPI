@@ -6,17 +6,17 @@ public class ProjectDTO {
     private Long id;
     private String title;
     private String description;
-    private Set<Long> participantIds;
+    private Set<String> participants;
     private Long ownerId;
 
     public ProjectDTO() {
     }
 
-    public ProjectDTO(Long id, String title, String description, Set<Long> participantIds, Long ownerId) {
+    public ProjectDTO(Long id, String title, String description, Set<String> participants, Long ownerId) {
         this.id = id;
         this.title = title;
         this.description = description;
-        this.participantIds = participantIds;
+        this.participants = participants;
         this.ownerId = ownerId;
     }
 
@@ -44,12 +44,12 @@ public class ProjectDTO {
         this.description = description;
     }
 
-    public Set<Long> getParticipantIds() {
-        return participantIds;
+    public Set<String> getParticipants() {
+        return participants;
     }
 
-    public void setParticipantIds(Set<Long> participantIds) {
-        this.participantIds = participantIds;
+    public void setParticipants(Set<String> participants) {
+        this.participants = participants;
     }
 
     public Long getOwnerId() {

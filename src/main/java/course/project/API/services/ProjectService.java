@@ -44,10 +44,10 @@ public class ProjectService {
             .orElseThrow(() -> new RuntimeException("User not found"));
         Project project = new Project(projectDTO.getTitle(), projectDTO.getDescription());
         project.setOwner(owner);
-        if (projectDTO.getParticipantIds() != null) {
+        if (projectDTO.getParticipants() != null) {
             Set<User> participants = new HashSet<>();
-            for (Long userId : projectDTO.getParticipantIds()) {
-                userRepository.findById(userId).ifPresent(participants::add);
+            for (String uname : projectDTO.getParticipants()) {
+                userRepository.findByUsername(uname).ifPresent(participants::add);
             }
             project.setParticipants(participants);
         }
@@ -61,10 +61,10 @@ public class ProjectService {
                 .map(project -> {
                     project.setTitle(projectDTO.getTitle());
                     project.setDescription(projectDTO.getDescription());
-                    if (projectDTO.getParticipantIds() != null) {
+                    if (projectDTO.getParticipants() != null) {
                         Set<User> participants = new HashSet<>();
-                        for (Long userId : projectDTO.getParticipantIds()) {
-                            userRepository.findById(userId).ifPresent(participants::add);
+                        for (String uname : projectDTO.getParticipants()) {
+                            userRepository.findByUsername(uname).ifPresent(participants::add);
                         }
                         project.setParticipants(participants);
                     }
@@ -103,14 +103,14 @@ public class ProjectService {
     }
 
     private ProjectDTO convertToDTO(Project project) {
-        Set<Long> participantIds = project.getParticipants().stream()
-                .map(User::getId)
+        Set<String> participants = project.getParticipants().stream()
+                .map(User::getUsername)
                 .collect(Collectors.toSet());
         return new ProjectDTO(
                 project.getId(),
                 project.getTitle(),
                 project.getDescription(),
-                participantIds,
+                participants,
                 project.getOwner() != null ? project.getOwner().getId() : null
         );
     }

@@ -17,6 +17,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import course.project.API.repositories.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.security.Principal;
+import course.project.API.repositories.ProjectRepository;
 
 @RestController
 @RequestMapping("/auth")
@@ -25,6 +29,10 @@ public class AuthController {
 
     private final AuthService authService;
     private final AuthenticationManager authenticationManager;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private ProjectRepository projectRepository;
 
     public AuthController(AuthService authService, AuthenticationManager authenticationManager) {
         this.authService = authService;
@@ -128,5 +136,34 @@ public class AuthController {
         }
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ErrorResponse("Authentication failed", "Not authenticated"));
+    }
+
+    @GetMapping("/users/{username}")
+    public ResponseEntity<UserResponse> getUserByUsername(
+        @PathVariable String username,
+        Principal principal
+    ) {
+        String currentUsername = principal.getName();
+        logger.info("currentUsername: {}, requested: {}", currentUsername, username);
+        logger.info("isOwner: {}", projectRepository.existsByOwner_Username(currentUsername));
+        logger.info("isParticipant: {}", projectRepository.existsByParticipants_Username(currentUsername));
+        var userOpt = userRepository.findByUsername(username).or(() -> userRepository.findByName(username));
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var user = userOpt.get();
+        // Если сам себя — всегда можно
+        if (currentUsername.equals(username) || currentUsername.equals(user.getName())) {
+            return ResponseEntity.ok(new UserResponse(user.getUsername(), user.getName(), user.getAvatarURL()));
+        }
+        // Проверка: есть ли общий проект
+        boolean allowed = projectRepository.existsByOwner_UsernameAndParticipants_Username(currentUsername, username)
+            || projectRepository.existsByOwner_UsernameAndParticipants_Username(username, currentUsername)
+            || projectRepository.existsByOwner_Username(currentUsername) && username.equals(currentUsername)
+            || projectRepository.existsByParticipants_Username(currentUsername) && username.equals(currentUsername);
+        if (!allowed) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(new UserResponse(user.getUsername(), user.getName(), user.getAvatarURL()));
     }
 }

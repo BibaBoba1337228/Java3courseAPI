@@ -29,6 +29,9 @@ public class Project {
     @JoinColumn(name = "owner_id")
     private User owner;
 
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<Board> boards = new HashSet<>();
+
     public Project() {
     }
 
@@ -83,5 +86,13 @@ public class Project {
 
     public void setOwner(User owner) {
         this.owner = owner;
+    }
+
+    public Set<Board> getBoards() {
+        return boards;
+    }
+
+    public void setBoards(Set<Board> boards) {
+        this.boards = boards;
     }
 } 
