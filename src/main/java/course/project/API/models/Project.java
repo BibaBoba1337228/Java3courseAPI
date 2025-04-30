@@ -29,8 +29,16 @@ public class Project {
     private Set<User> participants = new HashSet<>();
 
     @ManyToOne
-    @JoinColumn(name = "owner_id")
+    @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
+
+    @ManyToMany
+    @JoinTable(
+        name = "project_permissions",
+        joinColumns = @JoinColumn(name = "project_id"),
+        inverseJoinColumns = @JoinColumn(name = "permission_id")
+    )
+    private Set<Permission> permissions = new HashSet<>();
 
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
@@ -114,5 +122,17 @@ public class Project {
     public void removeBoard(Board board) {
         boards.remove(board);
         board.setProject(null);
+    }
+
+    public Set<Permission> getPermissions() {
+        return permissions;
+    }
+
+    public void setPermissions(Set<Permission> permissions) {
+        this.permissions = permissions;
+    }
+
+    public boolean hasPermission(String permissionName) {
+        return permissions.stream().anyMatch(p -> p.getName().equals(permissionName));
     }
 } 

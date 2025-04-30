@@ -20,11 +20,15 @@ import java.security.Principal;
 public class ProjectService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final PermissionManagementService permissionManagementService;
 
     @Autowired
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository) {
+    public ProjectService(ProjectRepository projectRepository,
+                         UserRepository userRepository,
+                         PermissionManagementService permissionManagementService) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.permissionManagementService = permissionManagementService;
     }
 
     public List<ProjectDTO> getAllProjects() {
@@ -52,6 +56,7 @@ public class ProjectService {
             project.setParticipants(participants);
         }
         Project savedProject = projectRepository.save(project);
+        permissionManagementService.assignDefaultProjectPermissions(savedProject);
         return convertToDTO(savedProject);
     }
 

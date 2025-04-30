@@ -34,6 +34,14 @@ public class Board {
     )
     private Set<User> participants = new HashSet<>();
 
+    @ManyToMany
+    @JoinTable(
+        name = "board_permissions",
+        joinColumns = @JoinColumn(name = "board_id"),
+        inverseJoinColumns = @JoinColumn(name = "permission_id")
+    )
+    private Set<Permission> permissions = new HashSet<>();
+
     @OneToMany(mappedBy = "board", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<DashBoardColumn> columns = new ArrayList<>();
@@ -133,5 +141,17 @@ public class Board {
     public void removeTag(Tag tag) {
         tags.remove(tag);
         tag.setBoard(null);
+    }
+
+    public Set<Permission> getPermissions() {
+        return permissions;
+    }
+
+    public void setPermissions(Set<Permission> permissions) {
+        this.permissions = permissions;
+    }
+
+    public boolean hasPermission(String permissionName) {
+        return permissions.stream().anyMatch(p -> p.getName().equals(permissionName));
     }
 } 

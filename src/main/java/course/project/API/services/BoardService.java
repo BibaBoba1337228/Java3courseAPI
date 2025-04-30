@@ -27,14 +27,17 @@ public class BoardService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final TagRepository tagRepository;
+    private final PermissionManagementService permissionManagementService;
 
     @Autowired
     public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository, 
-                        UserRepository userRepository, TagRepository tagRepository) {
+                        UserRepository userRepository, TagRepository tagRepository,
+                        PermissionManagementService permissionManagementService) {
         this.boardRepository = boardRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.tagRepository = tagRepository;
+        this.permissionManagementService = permissionManagementService;
     }
 
     public List<BoardDTO> getAllBoards() {
@@ -140,6 +143,30 @@ public class BoardService {
                             return convertToDTO(boardRepository.save(board));
                         }));
     }
+
+    @Transactional(readOnly = true)
+    public List<User> getBoardParticipants(Long boardId) {
+        return boardRepository.findById(boardId)
+                .map(board -> new ArrayList<>(board.getParticipants()))
+                .orElse(new ArrayList<>());
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> getAvailableUsersForBoard(Long boardId) {
+        Board board = boardRepository.findById(boardId)
+                .orElseThrow(() -> new RuntimeException("Board not found"));
+        
+        // Получаем всех участников проекта
+        Set<User> projectParticipants = board.getProject().getParticipants();
+        
+        // Получаем текущих участников доски
+        Set<User> boardParticipants = board.getParticipants();
+        
+        // Возвращаем участников проекта, которые еще не добавлены на доску
+        return projectParticipants.stream()
+                .filter(user -> !boardParticipants.contains(user))
+                .collect(Collectors.toList());
+    }
     
     @Transactional(readOnly = true)
     public List<TagDTO> getBoardTags(Long boardId) {
@@ -174,5 +201,18 @@ public class BoardService {
                 participantIds,
                 tagDTOs
         );
+    }
+
+    public Board createBoard(Board board, Long projectId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new RuntimeException("Project not found"));
+        
+        board.setProject(project);
+        board = boardRepository.save(board);
+        
+        // Assign default permissions
+        permissionManagementService.assignDefaultBoardPermissions(board);
+        
+        return board;
     }
 } 

@@ -9,13 +9,16 @@ import course.project.API.repositories.UserRepository;
 import course.project.API.services.ChecklistItemService;
 import course.project.API.services.TaskService;
 import course.project.API.services.TagService;
+import course.project.API.services.PermissionService;
 import course.project.API.repositories.TagRepository;
 import course.project.API.repositories.AttachmentRepository;
+import course.project.API.repositories.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +27,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -37,35 +41,72 @@ public class TaskController {
     private final TagRepository tagRepository;
     private final TagService tagService;
     private final AttachmentRepository attachmentRepository;
+    private final PermissionService permissionService;
+    private final TaskRepository taskRepository;
 
     @Autowired
-    public TaskController(TaskService taskService, UserRepository userRepository, 
-                          ChecklistItemService checklistItemService, 
-                          TagRepository tagRepository,
-                          TagService tagService,
-                          AttachmentRepository attachmentRepository) {
+    public TaskController(TaskService taskService, 
+                         UserRepository userRepository, 
+                         ChecklistItemService checklistItemService, 
+                         TagRepository tagRepository,
+                         TagService tagService,
+                         AttachmentRepository attachmentRepository,
+                         PermissionService permissionService,
+                         TaskRepository taskRepository) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
         this.tagRepository = tagRepository;
         this.tagService = tagService;
         this.attachmentRepository = attachmentRepository;
+        this.permissionService = permissionService;
+        this.taskRepository = taskRepository;
     }
 
     @GetMapping("/column/{columnId}")
-    public ResponseEntity<List<Task>> getTasksByColumn(@PathVariable Long columnId) {
+    public ResponseEntity<List<Task>> getTasksByColumn(
+            @PathVariable Long columnId,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.hasBoardAccess(user.getId(), columnId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         return ResponseEntity.ok(taskService.getAllTasksByColumn(columnId));
     }
 
     @GetMapping("/{taskId}")
-    public ResponseEntity<Task> getTaskById(@PathVariable Long taskId) {
+    public ResponseEntity<Task> getTaskById(
+            @PathVariable Long taskId,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.hasTaskAccess(user.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         return taskService.getTaskById(taskId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
     
     @GetMapping("/{taskId}/available-tags")
-    public ResponseEntity<List<Tag>> getAvailableTagsForTask(@PathVariable Long taskId) {
+    public ResponseEntity<List<Tag>> getAvailableTagsForTask(
+            @PathVariable Long taskId,
+            Principal principal) {
+            
+        var currentUser = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.hasTaskAccess(currentUser.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         return taskService.getTaskById(taskId)
                 .map(task -> {
                     Long boardId = task.getColumn().getBoard().getId();
@@ -76,7 +117,17 @@ public class TaskController {
     }
     
     @GetMapping("/column/{columnId}/available-tags")
-    public ResponseEntity<List<Tag>> getAvailableTagsForColumn(@PathVariable Long columnId) {
+    public ResponseEntity<List<Tag>> getAvailableTagsForColumn(
+            @PathVariable Long columnId,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.hasBoardAccess(user.getId(), columnId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         return ResponseEntity.ok(tagService.getTagsByColumnId(columnId));
     }
 
@@ -106,17 +157,24 @@ public class TaskController {
     }
 
     @PostMapping
-    public ResponseEntity<Task> createTask(@RequestBody Map<String, Object> payload) {
-        logger.info("Received task creation payload: {}", payload);
-        
+    public ResponseEntity<Task> createTask(
+            @RequestBody Map<String, Object> payload,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
         Long columnId = Long.parseLong(safeStringValue(payload.get("columnId")));
         Long boardId = null;
         
-        // Board ID can come as boardId or projectId in the payload
         if (payload.containsKey("boardId")) {
             boardId = Long.parseLong(safeStringValue(payload.get("boardId")));
         } else if (payload.containsKey("projectId")) {
             boardId = Long.parseLong(safeStringValue(payload.get("projectId")));
+        }
+        
+        if (!permissionService.hasBoardAccess(user.getId(), boardId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         
         logger.info("Using boardId: {}", boardId);
@@ -168,8 +226,8 @@ public class TaskController {
                 logger.info("Extracted username: {}", username);
                 
                 if (username != null) {
-                    userRepository.findByUsername(username).ifPresent(user -> {
-                        taskService.addParticipantToTask(task.getId(), user.getId());
+                    userRepository.findByUsername(username).ifPresent(foundUser -> {
+                        taskService.addParticipantToTask(task.getId(), foundUser.getId());
                         logger.info("Added participant: {}", username);
                     });
                 }
@@ -216,7 +274,15 @@ public class TaskController {
     @Transactional
     public ResponseEntity<Task> updateTask(
             @PathVariable Long taskId,
-            @RequestBody Map<String, Object> payload) {
+            @RequestBody Map<String, Object> payload,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageTask(user.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         
         logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
         
@@ -370,19 +436,50 @@ public class TaskController {
     }
 
     @DeleteMapping("/{taskId}")
-    public ResponseEntity<Void> deleteTask(@PathVariable Long taskId) {
+    public ResponseEntity<Void> deleteTask(
+            @PathVariable Long taskId,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageTask(user.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         taskService.deleteTask(taskId);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/column/{columnId}")
-    public ResponseEntity<Void> deleteAllTasksByColumn(@PathVariable Long columnId) {
+    public ResponseEntity<Void> deleteAllTasksByColumn(
+            @PathVariable Long columnId,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageBoard(user.getId(), columnId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         taskService.deleteAllTasksByColumn(columnId);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/reorder")
-    public ResponseEntity<Void> reorderTasks(@RequestBody List<Long> taskIds) {
+    public ResponseEntity<Void> reorderTasks(
+            @RequestBody List<Long> taskIds,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        // Проверяем доступ к первой задаче (предполагаем, что все задачи в одной колонке)
+        if (!taskIds.isEmpty() && !permissionService.canManageTask(user.getId(), taskIds.get(0))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         taskService.updateTasksPositions(taskIds);
         return ResponseEntity.noContent().build();
     }
@@ -390,7 +487,15 @@ public class TaskController {
     @PutMapping("/{taskId}/move")
     public ResponseEntity<Task> moveTaskToColumn(
             @PathVariable Long taskId,
-            @RequestBody Map<String, Object> payload) {
+            @RequestBody Map<String, Object> payload,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageTask(user.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         
         Long columnId = Long.parseLong(safeStringValue(payload.get("columnId")));
         Integer position = Integer.parseInt(safeStringValue(payload.get("position")));
@@ -402,30 +507,85 @@ public class TaskController {
     @PostMapping("/{taskId}/participants/{userId}")
     public ResponseEntity<Task> addParticipantToTask(
             @PathVariable Long taskId,
-            @PathVariable Long userId) {
+            @PathVariable Long userId,
+            Principal principal) {
+            
+        User currentUser = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageTask(currentUser.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         
-        Task task = taskService.addParticipantToTask(taskId, userId);
+        Task task = taskService.getTaskById(taskId)
+            .orElseThrow(() -> new RuntimeException("Task not found"));
+            
+        User participant = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("Participant not found"));
+            
+        task.getParticipants().add(participant);
+        taskRepository.save(task);
+        
         return ResponseEntity.ok(task);
     }
 
     @DeleteMapping("/{taskId}/participants/{userId}")
     public ResponseEntity<Task> removeParticipantFromTask(
             @PathVariable Long taskId,
-            @PathVariable Long userId) {
+            @PathVariable Long userId,
+            Principal principal) {
+            
+        var currentUser = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageTask(currentUser.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         
         Task task = taskService.removeParticipantFromTask(taskId, userId);
         return ResponseEntity.ok(task);
     }
 
     @GetMapping("/{taskId}/participants")
-    public ResponseEntity<Set<User>> getTaskParticipants(@PathVariable Long taskId) {
-        Set<User> participants = taskService.getTaskParticipants(taskId);
+    public ResponseEntity<List<User>> getTaskParticipants(
+            @PathVariable Long taskId,
+            Principal principal) {
+            
+        User currentUser = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.hasTaskAccess(currentUser.getId(), taskId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        Task task = taskService.getTaskById(taskId)
+            .orElseThrow(() -> new RuntimeException("Task not found"));
+            
+        List<User> participants = task.getParticipants().stream()
+            .map(p -> {
+                User participantUser = new User();
+                participantUser.setId(p.getId());
+                participantUser.setUsername(p.getUsername());
+                return participantUser;
+            })
+            .collect(Collectors.toList());
+            
         return ResponseEntity.ok(participants);
     }
 
     @PutMapping("/column/{columnId}/reorder")
-    public ResponseEntity<Void> reorderTasksInColumn(@PathVariable Long columnId, @RequestBody List<Long> taskIds) {
-        // Можно добавить проверку, что все taskIds действительно принадлежат этому columnId
+    public ResponseEntity<Void> reorderTasksInColumn(
+            @PathVariable Long columnId, 
+            @RequestBody List<Long> taskIds,
+            Principal principal) {
+            
+        var user = userRepository.findByUsername(principal.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+            
+        if (!permissionService.canManageBoard(user.getId(), columnId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         taskService.updateTasksPositions(taskIds);
         return ResponseEntity.ok().build();
     }
