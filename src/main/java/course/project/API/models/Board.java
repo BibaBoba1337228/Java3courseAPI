@@ -1,8 +1,12 @@
 package course.project.API.models;
 
 import jakarta.persistence.*;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Entity
 @Table(name = "boards")
@@ -19,6 +23,7 @@ public class Board {
 
     @ManyToOne
     @JoinColumn(name = "project_id", nullable = false)
+    @JsonBackReference
     private Project project;
 
     @ManyToMany
@@ -28,6 +33,14 @@ public class Board {
         inverseJoinColumns = @JoinColumn(name = "user_id")
     )
     private Set<User> participants = new HashSet<>();
+
+    @OneToMany(mappedBy = "board", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonManagedReference
+    private List<DashBoardColumn> columns = new ArrayList<>();
+
+    @OneToMany(mappedBy = "board", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonManagedReference
+    private List<Tag> tags = new ArrayList<>();
 
     public Board() {
     }
@@ -84,5 +97,41 @@ public class Board {
 
     public void removeParticipant(User user) {
         participants.remove(user);
+    }
+
+    public List<DashBoardColumn> getColumns() {
+        return columns;
+    }
+
+    public void setColumns(List<DashBoardColumn> columns) {
+        this.columns = columns;
+    }
+
+    public void addColumn(DashBoardColumn column) {
+        columns.add(column);
+        column.setBoard(this);
+    }
+
+    public void removeColumn(DashBoardColumn column) {
+        columns.remove(column);
+        column.setBoard(null);
+    }
+
+    public List<Tag> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<Tag> tags) {
+        this.tags = tags;
+    }
+
+    public void addTag(Tag tag) {
+        tags.add(tag);
+        tag.setBoard(this);
+    }
+
+    public void removeTag(Tag tag) {
+        tags.remove(tag);
+        tag.setBoard(null);
     }
 } 

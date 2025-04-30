@@ -1,16 +1,20 @@
 package course.project.API.services;
 
 import course.project.API.dto.board.BoardDTO;
+import course.project.API.dto.board.TagDTO;
 import course.project.API.models.Board;
 import course.project.API.models.Project;
+import course.project.API.models.Tag;
 import course.project.API.models.User;
 import course.project.API.repositories.BoardRepository;
 import course.project.API.repositories.ProjectRepository;
+import course.project.API.repositories.TagRepository;
 import course.project.API.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -22,12 +26,15 @@ public class BoardService {
     private final BoardRepository boardRepository;
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final TagRepository tagRepository;
 
     @Autowired
-    public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository, UserRepository userRepository) {
+    public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository, 
+                        UserRepository userRepository, TagRepository tagRepository) {
         this.boardRepository = boardRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.tagRepository = tagRepository;
     }
 
     public List<BoardDTO> getAllBoards() {
@@ -59,6 +66,15 @@ public class BoardService {
                         }
                         board.setParticipants(participants);
                     }
+                    
+                    // Add tags if provided
+                    if (boardDTO.getTags() != null) {
+                        for (TagDTO tagDTO : boardDTO.getTags()) {
+                            Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
+                            board.addTag(tag);
+                        }
+                    }
+                    
                     return convertToDTO(boardRepository.save(board));
                 });
     }
@@ -76,6 +92,26 @@ public class BoardService {
                         }
                         board.setParticipants(participants);
                     }
+                    
+                    // Update tags if provided
+                    if (boardDTO.getTags() != null) {
+                        // We don't remove existing tags to avoid breaking task references
+                        for (TagDTO tagDTO : boardDTO.getTags()) {
+                            if (tagDTO.getId() != null) {
+                                // Update existing tag
+                                tagRepository.findById(tagDTO.getId()).ifPresent(tag -> {
+                                    tag.setName(tagDTO.getName());
+                                    tag.setColor(tagDTO.getColor());
+                                    tagRepository.save(tag);
+                                });
+                            } else {
+                                // Create new tag
+                                Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
+                                board.addTag(tag);
+                            }
+                        }
+                    }
+                    
                     return convertToDTO(boardRepository.save(board));
                 });
     }
@@ -104,17 +140,39 @@ public class BoardService {
                             return convertToDTO(boardRepository.save(board));
                         }));
     }
+    
+    @Transactional(readOnly = true)
+    public List<TagDTO> getBoardTags(Long boardId) {
+        return tagRepository.findByBoardId(boardId).stream()
+                .map(this::convertTagToDTO)
+                .collect(Collectors.toList());
+    }
+    
+    private TagDTO convertTagToDTO(Tag tag) {
+        return new TagDTO(
+                tag.getId(),
+                tag.getName(),
+                tag.getColor(),
+                tag.getBoard().getId()
+        );
+    }
 
     private BoardDTO convertToDTO(Board board) {
         Set<Long> participantIds = board.getParticipants().stream()
                 .map(User::getId)
                 .collect(Collectors.toSet());
+                
+        List<TagDTO> tagDTOs = board.getTags().stream()
+                .map(this::convertTagToDTO)
+                .collect(Collectors.toList());
+                
         return new BoardDTO(
                 board.getId(),
                 board.getTitle(),
                 board.getDescription(),
                 board.getProject().getId(),
-                participantIds
+                participantIds,
+                tagDTOs
         );
     }
 } 

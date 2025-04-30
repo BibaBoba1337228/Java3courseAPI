@@ -1,7 +1,10 @@
 package course.project.API.models;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -30,7 +33,8 @@ public class Project {
     private User owner;
 
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<Board> boards = new HashSet<>();
+    @JsonManagedReference
+    private List<Board> boards = new ArrayList<>();
 
     public Project() {
     }
@@ -38,6 +42,12 @@ public class Project {
     public Project(String title, String description) {
         this.title = title;
         this.description = description;
+    }
+
+    public Project(String title, String description, User owner) {
+        this.title = title;
+        this.description = description;
+        this.owner = owner;
     }
 
     public Long getId() {
@@ -88,11 +98,21 @@ public class Project {
         this.owner = owner;
     }
 
-    public Set<Board> getBoards() {
+    public List<Board> getBoards() {
         return boards;
     }
 
-    public void setBoards(Set<Board> boards) {
+    public void setBoards(List<Board> boards) {
         this.boards = boards;
+    }
+
+    public void addBoard(Board board) {
+        boards.add(board);
+        board.setProject(this);
+    }
+
+    public void removeBoard(Board board) {
+        boards.remove(board);
+        board.setProject(null);
     }
 } 
