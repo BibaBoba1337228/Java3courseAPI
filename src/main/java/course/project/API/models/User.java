@@ -6,8 +6,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+
 
 @Entity
 @Table(name = "users")
@@ -28,14 +27,6 @@ public class User implements UserDetails {
 
     @Column
     private String avatarURL;
-
-    @ManyToMany
-    @JoinTable(
-        name = "user_permissions",
-        joinColumns = @JoinColumn(name = "user_id"),
-        inverseJoinColumns = @JoinColumn(name = "permission_id")
-    )
-    private Set<Permission> permissions = new HashSet<>();
 
     public User() {
     }
@@ -86,18 +77,6 @@ public class User implements UserDetails {
 
     public void setAvatarURL(String avatarURL) {
         this.avatarURL = avatarURL;
-    }
-
-    public Set<Permission> getPermissions() {
-        return permissions;
-    }
-
-    public void setPermissions(Set<Permission> permissions) {
-        this.permissions = permissions;
-    }
-
-    public boolean hasPermission(String permissionName) {
-        return permissions.stream().anyMatch(p -> p.getName().equals(permissionName));
     }
 
     // Это от интерфейса UserDetails
