@@ -109,33 +109,26 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<?> me(Authentication auth) {
-        if (auth != null && auth.isAuthenticated()) {
-            User user = (User) auth.getPrincipal();
-            return ResponseEntity.ok(new UserResponse(
-                user.getUsername(),
-                user.getName(),
-                user.getAvatarURL()
-            ));
-        }
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse("Authentication failed", "Not authenticated"));
+        User user = (User) auth.getPrincipal();
+        return ResponseEntity.ok(new UserResponse(
+            user.getUsername(),
+            user.getName(),
+            user.getAvatarURL()
+        ));
+    
     }
 
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(@RequestBody UserResponse profile, Authentication auth) {
-        if (auth != null && auth.isAuthenticated()) {
-            User user = (User) auth.getPrincipal();
-            user.setName(profile.getName());
-            user.setAvatarURL(profile.getAvatarURL());
-            User updatedUser = authService.updateUser(user);
-            return ResponseEntity.ok(new UserResponse(
-                updatedUser.getUsername(),
-                updatedUser.getName(),
-                updatedUser.getAvatarURL()
-            ));
-        }
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse("Authentication failed", "Not authenticated"));
+        User user = (User) auth.getPrincipal();
+        user.setName(profile.getName());
+        user.setAvatarURL(profile.getAvatarURL());
+        User updatedUser = authService.updateUser(user);
+        return ResponseEntity.ok(new UserResponse(
+            updatedUser.getUsername(),
+            updatedUser.getName(),
+            updatedUser.getAvatarURL()
+        ));
     }
 
     @GetMapping("/users/{username}")

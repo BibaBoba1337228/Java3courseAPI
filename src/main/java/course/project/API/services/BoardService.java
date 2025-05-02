@@ -3,7 +3,6 @@ package course.project.API.services;
 import course.project.API.dto.board.BoardDTO;
 import course.project.API.dto.board.TagDTO;
 import course.project.API.models.Board;
-import course.project.API.models.Project;
 import course.project.API.models.Tag;
 import course.project.API.models.User;
 import course.project.API.repositories.BoardRepository;
@@ -14,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;

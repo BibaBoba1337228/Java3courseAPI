@@ -1,7 +1,6 @@
 package course.project.API.controllers;
 
 import course.project.API.dto.board.BoardDTO;
-import course.project.API.dto.board.TagDTO;
 import course.project.API.services.BoardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;

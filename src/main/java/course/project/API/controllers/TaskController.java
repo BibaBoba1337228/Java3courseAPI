@@ -1,6 +1,5 @@
 package course.project.API.controllers;
 
-import course.project.API.dto.board.TagDTO;
 import course.project.API.models.ChecklistItem;
 import course.project.API.models.Tag;
 import course.project.API.models.Task;
@@ -21,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

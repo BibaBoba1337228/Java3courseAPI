@@ -2,7 +2,6 @@ package course.project.API.services;
 
 import course.project.API.models.Tag;
 import course.project.API.models.Board;
-import course.project.API.models.DashBoardColumn;
 import course.project.API.repositories.TagRepository;
 import course.project.API.repositories.BoardRepository;
 import course.project.API.repositories.DashBoardColumnRepository;

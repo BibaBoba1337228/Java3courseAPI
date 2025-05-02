@@ -23,25 +23,19 @@ public class TaskService {
     private final DashBoardColumnRepository columnRepository;
     private final UserRepository userRepository;
     private final TagRepository tagRepository;
-    private final ChecklistItemRepository checklistItemRepository;
     public final AttachmentRepository attachmentRepository;
-    private final BoardRepository boardRepository;
 
     @Autowired
     public TaskService(TaskRepository taskRepository, 
                       DashBoardColumnRepository columnRepository,
                       UserRepository userRepository,
                       TagRepository tagRepository,
-                      ChecklistItemRepository checklistItemRepository,
-                      AttachmentRepository attachmentRepository,
-                      BoardRepository boardRepository) {
+                      AttachmentRepository attachmentRepository) {
         this.taskRepository = taskRepository;
         this.columnRepository = columnRepository;
         this.userRepository = userRepository;
         this.tagRepository = tagRepository;
-        this.checklistItemRepository = checklistItemRepository;
         this.attachmentRepository = attachmentRepository;
-        this.boardRepository = boardRepository;
     }
 
     @Transactional(readOnly = true)
