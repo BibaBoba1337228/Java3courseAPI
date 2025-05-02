@@ -1,6 +1,7 @@
 package course.project.API.controllers;
 
 import course.project.API.dto.project.ProjectDTO;
+import course.project.API.dto.project.ProjectResponse;
 import course.project.API.services.ProjectService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -35,10 +36,10 @@ public class ProjectController {
     }
 
     @GetMapping("/my")
-    public List<ProjectDTO> getMyProjects(Principal principal) {
+    public List<ProjectResponse> getMyProjects(Principal principal) {
         var user = userRepository.findByUsername(principal.getName())
             .orElseThrow(() -> new RuntimeException("User not found"));
-        return projectService.getMyProjects(user.getId());
+        return projectService.getMyProjectsWithUsers(user.getId());
     }
 
     @PostMapping

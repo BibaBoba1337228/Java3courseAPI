@@ -1,10 +1,12 @@
 package course.project.API.services;
 
 import course.project.API.dto.project.ProjectDTO;
+import course.project.API.dto.project.ProjectResponse;
 import course.project.API.models.Project;
 import course.project.API.models.User;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
+import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,11 +21,13 @@ import java.util.stream.Collectors;
 public class ProjectService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final ModelMapper modelMapper;
 
     @Autowired
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository) {
+    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, ModelMapper modelMapper) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.modelMapper = modelMapper;
     }
 
     public List<ProjectDTO> getAllProjects() {
@@ -101,16 +105,22 @@ public class ProjectService {
             .stream().map(this::convertToDTO).collect(Collectors.toList());
     }
 
+    public List<ProjectResponse> getMyProjectsWithUsers(Long userId) {
+        return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
+            .stream().map(this::convertToResponseDTO).collect(Collectors.toList());
+    }
+
     private ProjectDTO convertToDTO(Project project) {
         Set<String> participants = project.getParticipants().stream()
                 .map(User::getUsername)
                 .collect(Collectors.toSet());
-        return new ProjectDTO(
-                project.getId(),
-                project.getTitle(),
-                project.getDescription(),
-                participants,
-                project.getOwner() != null ? project.getOwner().getId() : null
-        );
+        
+        ProjectDTO projectDTO = modelMapper.map(project, ProjectDTO.class);
+        projectDTO.setParticipants(participants);
+        return projectDTO;
+    }
+
+    private ProjectResponse convertToResponseDTO(Project project) {
+        return modelMapper.map(project, ProjectResponse.class);
     }
 } 

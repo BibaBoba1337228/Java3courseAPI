@@ -1,9 +1,12 @@
-package course.project.API.dto.auth;
+package course.project.API.dto.user;
 
 public class UserResponse {
     private String username;
     private String name;
     private String avatarURL;
+    
+    public UserResponse() {
+    }
 
     public UserResponse(String username, String name, String avatarURL) {
         this.username = username;

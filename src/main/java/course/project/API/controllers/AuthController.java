@@ -3,7 +3,7 @@ package course.project.API.controllers;
 import course.project.API.dto.auth.ErrorResponse;
 import course.project.API.dto.auth.LoginRequest;
 import course.project.API.dto.auth.RegisterRequest;
-import course.project.API.dto.auth.UserResponse;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.User;
 import course.project.API.services.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import course.project.API.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import java.security.Principal;
 import course.project.API.repositories.ProjectRepository;
 
 @RestController
@@ -60,7 +59,7 @@ public class AuthController {
             ));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(new ErrorResponse("Registration failed", "Username already exists"));
+                    .body(new ErrorResponse("Пользователь с таким логином уже существует"));
         }
     }
 
@@ -69,11 +68,11 @@ public class AuthController {
         try {
             if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
                 return ResponseEntity.badRequest()
-                    .body(new ErrorResponse("Login failed", "Username is required"));
+                    .body(new ErrorResponse("Не указан логин"));
             }
             if (request.getPassword() == null || request.getPassword().trim().isEmpty()) {
                 return ResponseEntity.badRequest()
-                    .body(new ErrorResponse("Login failed", "Password is required"));
+                    .body(new ErrorResponse("Не указан пароль"));
             }
 
             logger.info("Attempting login for user: {}", request.getUsername());
@@ -95,8 +94,8 @@ public class AuthController {
             ));
         } catch (Exception e) {
             logger.error("Login failed for user: {} - Error: {}", request.getUsername(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ErrorResponse("Login failed", "Invalid username or password"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponse("Неверный логин или пароль"));
         }
     }
 
@@ -107,16 +106,7 @@ public class AuthController {
         return ResponseEntity.ok("Logged out successfully");
     }
 
-    @GetMapping("/me")
-    public ResponseEntity<?> me(Authentication auth) {
-        User user = (User) auth.getPrincipal();
-        return ResponseEntity.ok(new UserResponse(
-            user.getUsername(),
-            user.getName(),
-            user.getAvatarURL()
-        ));
-    
-    }
+
 
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(@RequestBody UserResponse profile, Authentication auth) {
@@ -131,32 +121,4 @@ public class AuthController {
         ));
     }
 
-    @GetMapping("/users/{username}")
-    public ResponseEntity<UserResponse> getUserByUsername(
-        @PathVariable String username,
-        Principal principal
-    ) {
-        String currentUsername = principal.getName();
-        logger.info("currentUsername: {}, requested: {}", currentUsername, username);
-        logger.info("isOwner: {}", projectRepository.existsByOwner_Username(currentUsername));
-        logger.info("isParticipant: {}", projectRepository.existsByParticipants_Username(currentUsername));
-        var userOpt = userRepository.findByUsername(username).or(() -> userRepository.findByName(username));
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        var user = userOpt.get();
-        // Если сам себя — всегда можно
-        if (currentUsername.equals(username) || currentUsername.equals(user.getName())) {
-            return ResponseEntity.ok(new UserResponse(user.getUsername(), user.getName(), user.getAvatarURL()));
-        }
-        // Проверка: есть ли общий проект
-        boolean allowed = projectRepository.existsByOwner_UsernameAndParticipants_Username(currentUsername, username)
-            || projectRepository.existsByOwner_UsernameAndParticipants_Username(username, currentUsername)
-            || projectRepository.existsByOwner_Username(currentUsername) && username.equals(currentUsername)
-            || projectRepository.existsByParticipants_Username(currentUsername) && username.equals(currentUsername);
-        if (!allowed) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-        return ResponseEntity.ok(new UserResponse(user.getUsername(), user.getName(), user.getAvatarURL()));
-    }
 }
