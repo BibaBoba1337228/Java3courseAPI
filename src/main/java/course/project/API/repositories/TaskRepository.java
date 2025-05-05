@@ -15,4 +15,5 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     List<Task> findByColumnId(Long columnId);
     
     void deleteByColumnId(Long columnId);
+
 } 

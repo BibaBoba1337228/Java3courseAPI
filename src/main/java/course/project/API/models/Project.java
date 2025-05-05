@@ -35,6 +35,9 @@ public class Project {
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<Board> boards = new ArrayList<>();
+    
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ProjectUserRight> userRights = new ArrayList<>();
 
     public Project() {
     }
@@ -88,6 +91,7 @@ public class Project {
 
     public void removeParticipant(User user) {
         participants.remove(user);
+        userRights.removeIf(right -> right.getUser().equals(user));
     }
 
     public User getOwner() {
@@ -114,5 +118,30 @@ public class Project {
     public void removeBoard(Board board) {
         boards.remove(board);
         board.setProject(null);
+    }
+    
+    public List<ProjectUserRight> getUserRights() {
+        return userRights;
+    }
+    
+    public void setUserRights(List<ProjectUserRight> userRights) {
+        this.userRights = userRights;
+    }
+    
+    public void addUserRight(User user, ProjectRight right) {
+        ProjectUserRight userRight = new ProjectUserRight(this, user, right);
+        userRights.add(userRight);
+    }
+    
+    public void removeUserRight(User user, ProjectRight right) {
+        userRights.removeIf(r -> r.getUser().equals(user) && r.getRight() == right);
+    }
+    
+    public boolean hasRight(User user, ProjectRight right) {
+        if (user.equals(owner)) {
+            return true; // Owner has all rights
+        }
+        return userRights.stream()
+                .anyMatch(r -> r.getUser().equals(user) && r.getRight() == right);
     }
 } 

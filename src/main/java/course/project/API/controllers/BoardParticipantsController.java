@@ -1,6 +1,5 @@
 package course.project.API.controllers;
 
-import course.project.API.dto.board.BoardDTO;
 import course.project.API.models.User;
 import course.project.API.repositories.UserRepository;
 import course.project.API.services.BoardService;
@@ -37,23 +36,23 @@ public class BoardParticipantsController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/{userId}")
-    public ResponseEntity<BoardDTO> addParticipantToBoard(
-            @PathVariable Long boardId,
-            @PathVariable Long userId) {
-        
-        return boardService.addParticipant(boardId, userId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @DeleteMapping("/{userId}")
-    public ResponseEntity<BoardDTO> removeParticipantFromBoard(
-            @PathVariable Long boardId,
-            @PathVariable Long userId) {
-        
-        return boardService.removeParticipant(boardId, userId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
+//    @PostMapping("/{userId}")
+//    public ResponseEntity<?> addParticipantToBoard(
+//            @PathVariable Long boardId,
+//            @PathVariable Long userId) {
+//
+//        return boardService.addParticipant(boardId, userId)
+//                .map(ResponseEntity::ok)
+//                .orElse(ResponseEntity.notFound().build());
+//    }
+//
+//    @DeleteMapping("/{userId}")
+//    public ResponseEntity<?> removeParticipantFromBoard(
+//            @PathVariable Long boardId,
+//            @PathVariable Long userId) {
+//
+//        return boardService.removeParticipant(boardId, userId)
+//                .map(ResponseEntity::ok)
+//                .orElse(ResponseEntity.notFound().build());
+//    }
 } 

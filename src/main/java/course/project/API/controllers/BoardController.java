@@ -1,6 +1,7 @@
 package course.project.API.controllers;
 
 import course.project.API.dto.board.BoardDTO;
+import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.services.BoardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -31,8 +32,8 @@ public class BoardController {
     }
 
     @GetMapping("/{boardId}")
-    public ResponseEntity<BoardDTO> getBoardById(@PathVariable Long boardId) {
-        return boardService.getBoardById(boardId)
+    public ResponseEntity<BoardWithColumnsDTO> getBoardById(@PathVariable Long boardId) {
+        return boardService.getBoardWithDetails(boardId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -45,18 +46,47 @@ public class BoardController {
     }
 
     @PutMapping("/{boardId}")
-    public ResponseEntity<BoardDTO> updateBoard(
+    public ResponseEntity<Void> updateBoard(
             @PathVariable Long boardId,
             @RequestBody BoardDTO boardDTO) {
         
-        return boardService.updateBoard(boardId, boardDTO)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        boolean updated = boardService.updateBoard(boardId, boardDTO);
+        if (updated) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @DeleteMapping("/{boardId}")
     public ResponseEntity<Void> deleteBoard(@PathVariable Long boardId) {
         boardService.deleteBoard(boardId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{boardId}/participants/{userId}")
+    public ResponseEntity<Void> addParticipant(
+            @PathVariable Long boardId,
+            @PathVariable Long userId) {
+        
+        boolean added = boardService.addParticipant(boardId, userId);
+        if (added) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+    
+    @DeleteMapping("/{boardId}/participants/{userId}")
+    public ResponseEntity<Void> removeParticipant(
+            @PathVariable Long boardId,
+            @PathVariable Long userId) {
+        
+        boolean removed = boardService.removeParticipant(boardId, userId);
+        if (removed) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
     }
 } 

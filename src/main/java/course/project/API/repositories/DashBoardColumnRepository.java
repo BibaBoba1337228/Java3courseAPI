@@ -15,4 +15,6 @@ public interface DashBoardColumnRepository extends JpaRepository<DashBoardColumn
     List<DashBoardColumn> findByBoard_Id(Long boardId);
     
     void deleteByBoard_Id(Long boardId);
+    
+
 } 

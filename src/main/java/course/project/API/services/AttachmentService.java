@@ -52,9 +52,8 @@ public class AttachmentService {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found with id: " + taskId));
         
-        // Generate unique filename
         String originalFilename = file.getOriginalFilename();
-        String fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        String fileExtension = originalFilename != null ? originalFilename.substring(originalFilename.lastIndexOf(".")) : "";
         String uniqueFilename = UUID.randomUUID().toString() + fileExtension;
         
         // Create file path
