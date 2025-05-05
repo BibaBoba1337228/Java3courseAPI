@@ -6,27 +6,34 @@ import course.project.API.models.Project;
 import course.project.API.models.User;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
+import course.project.API.repositories.InvitationRepository;
+import course.project.API.models.Invitation;
+import course.project.API.models.InvitationStatus;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Map;
 
 @Service
 public class ProjectService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final InvitationRepository invitationRepository;
     private final ModelMapper modelMapper;
 
     @Autowired
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, ModelMapper modelMapper) {
+    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.invitationRepository = invitationRepository;
         this.modelMapper = modelMapper;
     }
 
@@ -100,6 +107,46 @@ public class ProjectService {
                         }));
     }
 
+    @Transactional
+    public Optional<ProjectDTO> addParticipantByUsername(Long projectId, String username) {
+        return projectRepository.findById(projectId)
+                .flatMap(project -> userRepository.findByUsername(username)
+                        .or(() -> userRepository.findByName(username))
+                        .map(user -> {
+                            // Check if invitation already exists
+                            if (invitationRepository.existsByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)) {
+                                throw new IllegalStateException("Pending invitation already exists");
+                            }
+                            
+                            // Create new invitation
+                            Invitation invitation = new Invitation(project.getOwner(), user, project);
+                            invitationRepository.save(invitation);
+                            
+                            return convertToDTO(project);
+                        }));
+    }
+
+    @Transactional
+    public Optional<ProjectDTO> removeParticipantByUsername(Long projectId, String username) {
+        return projectRepository.findById(projectId)
+                .flatMap(project -> userRepository.findByUsername(username)
+                        .or(() -> userRepository.findByName(username))
+                        .map(user -> {
+                            // Remove user from project
+                            project.removeParticipant(user);
+                            
+                            // Remove any pending invitations
+                            invitationRepository.findByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)
+                                    .ifPresent(invitation -> {
+                                        invitation.setStatus(InvitationStatus.REJECTED);
+                                        invitation.setUpdatedAt(LocalDateTime.now());
+                                        invitationRepository.save(invitation);
+                                    });
+                            
+                            return convertToDTO(projectRepository.save(project));
+                        }));
+    }
+
     public List<ProjectDTO> getMyProjects(Long userId) {
         return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
             .stream().map(this::convertToDTO).collect(Collectors.toList());
@@ -115,8 +162,17 @@ public class ProjectService {
                 .map(User::getUsername)
                 .collect(Collectors.toSet());
         
+        // Get pending invitations for this project
+        Map<String, InvitationStatus> pendingInvitations = invitationRepository.findByProjectAndStatus(project, InvitationStatus.PENDING)
+                .stream()
+                .collect(Collectors.toMap(
+                        invitation -> invitation.getRecipient().getUsername(),
+                        Invitation::getStatus
+                ));
+        
         ProjectDTO projectDTO = modelMapper.map(project, ProjectDTO.class);
         projectDTO.setParticipants(participants);
+        projectDTO.setPendingInvitations(pendingInvitations);
         return projectDTO;
     }
 

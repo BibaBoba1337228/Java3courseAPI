@@ -5,6 +5,7 @@ import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.models.Board;
 import course.project.API.models.DashBoardColumn;
 import course.project.API.models.Tag;
+import course.project.API.models.Task;
 import course.project.API.models.User;
 import course.project.API.repositories.*;
 import org.modelmapper.ModelMapper;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -213,5 +215,143 @@ public class BoardService {
             logger.error("Ошибка при создании колонки: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    @Transactional
+    public DashBoardColumn updateColumn(Long boardId, Long columnId, String title, Integer position) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> dashboardColumnRepository.findById(columnId)
+                        .map(column -> {
+                            if (title != null) {
+                                column.setName(title);
+                            }
+                            if (position != null) {
+                                column.setPosition(position);
+                            }
+                            return dashboardColumnRepository.save(column);
+                        }))
+                .orElse(null);
+    }
+
+    @Transactional
+    public boolean deleteColumn(Long boardId, Long columnId) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> dashboardColumnRepository.findById(columnId)
+                        .map(column -> {
+                            board.removeColumn(column);
+                            boardRepository.save(board);
+                            return true;
+                        }))
+                .orElse(false);
+    }
+
+    @Transactional
+    public boolean reorderColumns(Long boardId, List<Map<String, Object>> columns) {
+        return boardRepository.findById(boardId)
+                .map(board -> {
+                    for (Map<String, Object> columnData : columns) {
+                        Long columnId = Long.valueOf(columnData.get("id").toString());
+                        Integer position = (Integer) columnData.get("position");
+                        
+                        dashboardColumnRepository.findById(columnId)
+                                .ifPresent(column -> {
+                                    column.setPosition(position);
+                                    dashboardColumnRepository.save(column);
+                                });
+                    }
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    @Transactional
+    public TaskDTO createTask(Long boardId, Long columnId, String title, String description, List<Long> tagIds) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> dashboardColumnRepository.findById(columnId)
+                        .map(column -> {
+                            Task task = new Task(title, description, column);
+                            
+                            if (tagIds != null) {
+                                for (Long tagId : tagIds) {
+                                    tagRepository.findById(tagId)
+                                            .ifPresent(task::setTag);
+                                }
+                            }
+                            
+                            column.addTask(task);
+                            dashboardColumnRepository.save(column);
+                            return modelMapper.map(task, TaskDTO.class);
+                        }))
+                .orElse(null);
+    }
+
+    @Transactional
+    public TaskDTO updateTask(Long boardId, Long taskId, String title, String description, List<Long> tagIds) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> dashboardColumnRepository.findByBoard_Id(boardId).stream()
+                        .flatMap(column -> column.getTasks().stream())
+                        .filter(task -> task.getId().equals(taskId))
+                        .findFirst()
+                        .map(task -> {
+                            if (title != null) {
+                                task.setTitle(title);
+                            }
+                            if (description != null) {
+                                task.setDescription(description);
+                            }
+                            if (tagIds != null) {
+                                task.setTag(null); // Clear existing tag
+                                if (!tagIds.isEmpty()) {
+                                    tagRepository.findById(tagIds.get(0))
+                                            .ifPresent(task::setTag);
+                                }
+                            }
+                            return modelMapper.map(task, TaskDTO.class);
+                        }))
+                .orElse(null);
+    }
+
+    @Transactional
+    public boolean deleteTask(Long boardId, Long taskId) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> dashboardColumnRepository.findByBoard_Id(boardId).stream()
+                        .filter(column -> column.getTasks().stream()
+                                .anyMatch(task -> task.getId().equals(taskId)))
+                        .findFirst()
+                        .map(column -> {
+                            column.getTasks().removeIf(task -> task.getId().equals(taskId));
+                            dashboardColumnRepository.save(column);
+                            return true;
+                        }))
+                .orElse(false);
+    }
+
+    @Transactional
+    public boolean moveTask(Long boardId, Long taskId, Long sourceColumnId, Long targetColumnId, Integer newPosition) {
+        return boardRepository.findById(boardId)
+                .flatMap(board -> {
+                    DashBoardColumn sourceColumn = dashboardColumnRepository.findById(sourceColumnId).orElse(null);
+                    DashBoardColumn targetColumn = dashboardColumnRepository.findById(targetColumnId).orElse(null);
+                    
+                    if (sourceColumn == null || targetColumn == null) {
+                        return Optional.empty();
+                    }
+                    
+                    return sourceColumn.getTasks().stream()
+                            .filter(task -> task.getId().equals(taskId))
+                            .findFirst()
+                            .map(task -> {
+                                sourceColumn.getTasks().remove(task);
+                                task.setColumn(targetColumn);
+                                if (newPosition != null) {
+                                    task.setPosition(newPosition);
+                                }
+                                targetColumn.addTask(task);
+                                dashboardColumnRepository.save(sourceColumn);
+                                dashboardColumnRepository.save(targetColumn);
+                                return true;
+                            });
+                })
+                .orElse(false);
     }
 } 

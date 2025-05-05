@@ -1,5 +1,7 @@
 package course.project.API.dto.project;
 
+import course.project.API.models.InvitationStatus;
+import java.util.Map;
 import java.util.Set;
 
 public class ProjectDTO {
@@ -8,6 +10,7 @@ public class ProjectDTO {
     private String description;
     private Set<String> participants;
     private Long ownerId;
+    private Map<String, InvitationStatus> pendingInvitations;
 
     public ProjectDTO() {
     }
@@ -58,5 +61,13 @@ public class ProjectDTO {
 
     public void setOwnerId(Long ownerId) {
         this.ownerId = ownerId;
+    }
+
+    public Map<String, InvitationStatus> getPendingInvitations() {
+        return pendingInvitations;
+    }
+
+    public void setPendingInvitations(Map<String, InvitationStatus> pendingInvitations) {
+        this.pendingInvitations = pendingInvitations;
     }
 } 

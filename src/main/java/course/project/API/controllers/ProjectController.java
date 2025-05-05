@@ -60,16 +60,20 @@ public class ProjectController {
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/{projectId}/participants/{userId}")
-    public ResponseEntity<ProjectDTO> addParticipant(@PathVariable Long projectId, @PathVariable Long userId) {
-        return projectService.addParticipant(projectId, userId)
+    @PostMapping("/{projectId}/participants/{username}")
+    public ResponseEntity<ProjectDTO> addParticipant(
+            @PathVariable Long projectId,
+            @PathVariable String username) {
+        return projectService.addParticipantByUsername(projectId, username)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @DeleteMapping("/{projectId}/participants/{userId}")
-    public ResponseEntity<ProjectDTO> removeParticipant(@PathVariable Long projectId, @PathVariable Long userId) {
-        return projectService.removeParticipant(projectId, userId)
+    @DeleteMapping("/{projectId}/participants/{username}")
+    public ResponseEntity<ProjectDTO> removeParticipant(
+            @PathVariable Long projectId,
+            @PathVariable String username) {
+        return projectService.removeParticipantByUsername(projectId, username)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
