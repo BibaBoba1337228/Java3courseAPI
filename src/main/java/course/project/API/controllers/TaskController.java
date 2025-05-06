@@ -1,13 +1,8 @@
 package course.project.API.controllers;
 
-import course.project.API.models.ChecklistItem;
-import course.project.API.models.Tag;
-import course.project.API.models.Task;
-import course.project.API.models.User;
+import course.project.API.models.*;
 import course.project.API.repositories.UserRepository;
-import course.project.API.services.ChecklistItemService;
-import course.project.API.services.TaskService;
-import course.project.API.services.TagService;
+import course.project.API.services.*;
 import course.project.API.repositories.TagRepository;
 import course.project.API.repositories.AttachmentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,31 +32,63 @@ public class TaskController {
     private final TagRepository tagRepository;
     private final TagService tagService;
     private final AttachmentRepository attachmentRepository;
+    private final BoardRightService boardRightService;
 
     @Autowired
     public TaskController(TaskService taskService, UserRepository userRepository, 
                           ChecklistItemService checklistItemService, 
                           TagRepository tagRepository,
                           TagService tagService,
-                          AttachmentRepository attachmentRepository) {
+                          AttachmentRepository attachmentRepository,
+                          BoardRightService boardRightService) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
         this.tagRepository = tagRepository;
         this.tagService = tagService;
         this.attachmentRepository = attachmentRepository;
+        this.boardRightService = boardRightService;
     }
 
     @GetMapping("/column/{columnId}")
-    public ResponseEntity<List<Task>> getTasksByColumn(@PathVariable Long columnId) {
+    public ResponseEntity<List<Task>> getTasksByColumn(
+            @PathVariable Long columnId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get board ID for the column for permission check
+        DashBoardColumn column = taskService.getColumnById(columnId);
+        if (column == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = column.getBoard().getId();
+        
+        // Check if user has VIEW_BOARD right
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
         return ResponseEntity.ok(taskService.getAllTasksByColumn(columnId));
     }
 
     @GetMapping("/{taskId}")
-    public ResponseEntity<Task> getTaskById(@PathVariable Long taskId) {
-        return taskService.getTaskById(taskId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<Task> getTaskById(
+            @PathVariable Long taskId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has VIEW_BOARD right
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        return ResponseEntity.ok(task);
     }
     
     @GetMapping("/{taskId}/available-tags")
@@ -104,20 +133,25 @@ public class TaskController {
     }
 
     @PostMapping
-    public ResponseEntity<Task> createTask(@RequestBody Map<String, Object> payload) {
+    public ResponseEntity<Task> createTask(
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal User currentUser) {
         logger.info("Received task creation payload: {}", payload);
         
         Long columnId = Long.parseLong(safeStringValue(payload.get("columnId")));
-        Long boardId = null;
         
-        // Board ID can come as boardId or projectId in the payload
-        if (payload.containsKey("boardId")) {
-            boardId = Long.parseLong(safeStringValue(payload.get("boardId")));
-        } else if (payload.containsKey("projectId")) {
-            boardId = Long.parseLong(safeStringValue(payload.get("projectId")));
+        // Get board ID for permission check
+        DashBoardColumn column = taskService.getColumnById(columnId);
+        if (column == null) {
+            return ResponseEntity.notFound().build();
         }
         
-        logger.info("Using boardId: {}", boardId);
+        Long boardId = column.getBoard().getId();
+        
+        // Check if user has CREATE_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_TASKS)) {
+            return ResponseEntity.status(403).body(null);
+        }
         
         String title = safeStringValue(payload.get("title"));
         String description = payload.containsKey("description") ? 
@@ -200,21 +234,28 @@ public class TaskController {
             }
         }
         
-        // Перезагружаем задачу, чтобы получить полные данные
-        Task refreshedTask = taskService.getTaskById(task.getId())
-                .orElse(task);
-        
-        logger.info("Returning refreshed task: {}, tag: {}, checklist size: {}", 
-            refreshedTask.getId(), refreshedTask.getTag(), refreshedTask.getChecklist().size());
-                
-        return ResponseEntity.status(HttpStatus.CREATED).body(refreshedTask);
+        return ResponseEntity.status(HttpStatus.CREATED).body(task);
     }
 
     @PutMapping("/{taskId}")
     @Transactional
     public ResponseEntity<Task> updateTask(
             @PathVariable Long taskId,
-            @RequestBody Map<String, Object> payload) {
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has EDIT_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
+            return ResponseEntity.status(403).body(null);
+        }
         
         logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
         
@@ -225,14 +266,22 @@ public class TaskController {
         String startDate = payload.containsKey("startDate") ? safeStringValue(payload.get("startDate")) : null;
         String endDate = payload.containsKey("endDate") ? safeStringValue(payload.get("endDate")) : null;
 
-        // Board ID can come as boardId or projectId in the payload
-        Long boardId = null;
-        if (payload.containsKey("boardId")) {
-            boardId = Long.parseLong(safeStringValue(payload.get("boardId")));
-        } else if (payload.containsKey("projectId")) {
-            boardId = Long.parseLong(safeStringValue(payload.get("projectId")));
+        // Check if moving to a different column
+        if (columnId != null && !columnId.equals(task.getColumn().getId())) {
+            // Check if user has MOVE_TASKS right
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+                return ResponseEntity.status(403).body(null);
+            }
         }
-
+        
+        String tagName = payload.containsKey("tags") ? safeStringValue(payload.get("tags")) : null;
+        Long boardIdFromPayload = null;
+        if (payload.containsKey("boardId")) {
+            boardIdFromPayload = Long.parseLong(safeStringValue(payload.get("boardId")));
+        } else if (payload.containsKey("projectId")) {
+            boardIdFromPayload = Long.parseLong(safeStringValue(payload.get("projectId")));
+        }
+        
         Task updatedTask;
         if (payload.containsKey("tagId")) {
             Long tagId = Long.parseLong(safeStringValue(payload.get("tagId")));
@@ -240,121 +289,77 @@ public class TaskController {
             updatedTask = taskService.updateTaskWithTagId(
                 taskId, title, description, position, columnId, tagId, startDate, endDate);
         } else {
-            String tagName = payload.containsKey("tags") ? safeStringValue(payload.get("tags")) : null;
-            logger.info("Updating tag with name: {}, boardId: {}", tagName, boardId);
+            logger.info("Updating tag with name: {}, boardId: {}", tagName, boardIdFromPayload);
             updatedTask = taskService.updateTask(
-                taskId, title, description, position, columnId, tagName, startDate, endDate, boardId);
+                taskId, title, description, position, columnId, tagName, startDate, endDate, boardIdFromPayload);
         }
 
-        // --- Обновление участников ---
+        // Update participants if present
         if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
             List<Object> participants = (List<Object>) payload.get("participants");
-            Set<User> users = new java.util.HashSet<>();
+            
+            // Get current participants
+            Set<User> currentParticipants = taskService.getTaskParticipants(taskId);
+            List<String> newParticipantUsernames = new ArrayList<>();
+            
+            // Process new participants list
             for (Object participant : participants) {
                 String username = extractUsername(participant);
                 if (username != null) {
-                    userRepository.findByUsername(username).ifPresent(users::add);
+                    newParticipantUsernames.add(username);
+                    // Add new participants
+                    userRepository.findByUsername(username).ifPresent(user -> {
+                        if (!currentParticipants.contains(user)) {
+                            taskService.addParticipantToTask(taskId, user.getId());
+                        }
+                    });
                 }
             }
-            updatedTask.setParticipants(users);
+            
+            // Remove participants that are no longer in the list
+            for (User currentParticipant : currentParticipants) {
+                if (!newParticipantUsernames.contains(currentParticipant.getUsername())) {
+                    taskService.removeParticipantFromTask(taskId, currentParticipant.getId());
+                }
+            }
         }
 
-        // --- Обновление чеклиста ---
+        // Update checklist items if present
         if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
             List<Object> checklistItems = (List<Object>) payload.get("checklist");
-            // Собираем id новых элементов (если есть)
-            List<Long> newIds = checklistItems.stream()
-                .map(itemObj -> {
-                    if (itemObj instanceof Map) {
-                        Map<String, Object> item = (Map<String, Object>) itemObj;
-                        Object idObj = item.get("id");
-                        if (idObj != null) {
-                            try { return Long.parseLong(idObj.toString()); } catch (Exception e) { return null; }
-                        }
-                    }
-                    return null;
-                })
-                .filter(java.util.Objects::nonNull)
-                .toList();
-
-            // Удаляем старые, которых нет в новом списке
-            List<ChecklistItem> toRemove = new ArrayList<>();
-            for (ChecklistItem oldItem : new ArrayList<>(updatedTask.getChecklist())) {
-                if (oldItem.getId() == null || !newIds.contains(oldItem.getId())) {
-                    toRemove.add(oldItem);
-                }
-            }
-            for (ChecklistItem item : toRemove) {
-                updatedTask.removeChecklistItem(item);
-            }
-
-            // Обновляем существующие и добавляем новые
-            for (Object itemObj : checklistItems) {
-                if (itemObj instanceof Map) {
-                    Map<String, Object> item = (Map<String, Object>) itemObj;
+            
+            // Process new checklist items
+            for (int i = 0; i < checklistItems.size(); i++) {
+                if (checklistItems.get(i) instanceof Map) {
+                    Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
                     String text = safeStringValue(item.get("text"));
                     boolean completed = item.containsKey("completed") && Boolean.parseBoolean(safeStringValue(item.get("completed")));
-                    Long id = null;
-                    if (item.get("id") != null) {
-                        try { id = Long.parseLong(item.get("id").toString()); } catch (Exception e) { id = null; }
-                    }
-                    ChecklistItem checklistItem = null;
-                    if (id != null) {
-                        for (ChecklistItem old : updatedTask.getChecklist()) {
-                            if (id.equals(old.getId())) {
-                                checklistItem = old;
-                                break;
-                            }
+                    Long itemId = item.containsKey("id") ? Long.parseLong(safeStringValue(item.get("id"))) : null;
+                    
+                    if (itemId != null) {
+                        // Update existing item
+                        checklistItemService.updateChecklistItem(itemId, text, completed, i);
+                    } else {
+                        // Create new item
+                        ChecklistItem checklistItem = checklistItemService.createChecklistItem(taskId, text, i);
+                        if (completed) {
+                            checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
                         }
                     }
-                    if (checklistItem == null) {
-                        checklistItem = new ChecklistItem(text, updatedTask);
-                        checklistItem.setCompleted(completed);
-                        updatedTask.addChecklistItem(checklistItem);
-                    } else {
-                        checklistItem.setText(text);
-                        checklistItem.setCompleted(completed);
-                    }
+                }
+            }
+            
+            // Remove items that have been deleted
+            if (payload.containsKey("deletedChecklistItems") && payload.get("deletedChecklistItems") instanceof List) {
+                List<Object> deletedItems = (List<Object>) payload.get("deletedChecklistItems");
+                for (Object deletedItem : deletedItems) {
+                    Long itemId = Long.parseLong(safeStringValue(deletedItem));
+                    checklistItemService.deleteChecklistItem(itemId);
                 }
             }
         }
-
-        // --- Обновление вложений (attachments) ---
-        if (payload.containsKey("attachments") && payload.get("attachments") instanceof List) {
-            List<Object> attachmentIds = (List<Object>) payload.get("attachments");
-            List<Long> newIds = attachmentIds.stream()
-                .map(idObj -> {
-                    try { return Long.parseLong(idObj.toString()); } catch (Exception e) { return null; }
-                })
-                .filter(java.util.Objects::nonNull)
-                .toList();
-
-            // attachments, которые должны остаться
-            List<course.project.API.models.Attachment> newAttachments = new java.util.ArrayList<>();
-            for (Long attId : newIds) {
-                attachmentRepository.findById(attId).ifPresent(newAttachments::add);
-            }
-
-            // attachments, которые были раньше, но их нет в новом списке — удалить
-            java.util.List<course.project.API.models.Attachment> toRemove = new java.util.ArrayList<>();
-            for (course.project.API.models.Attachment oldAtt : new java.util.ArrayList<>(updatedTask.getAttachments())) {
-                if (!newIds.contains(oldAtt.getId())) {
-                    toRemove.add(oldAtt);
-                }
-            }
-            for (course.project.API.models.Attachment att : toRemove) {
-                updatedTask.removeAttachment(att);
-            }
-
-            // добавить новые, которых не было
-            for (course.project.API.models.Attachment att : newAttachments) {
-                if (!updatedTask.getAttachments().contains(att)) {
-                    updatedTask.addAttachment(att);
-                }
-            }
-        }
-
-        // --- Сохраняем задачу с обновлёнными участниками и чеклистом ---
+        
+        // Перезагружаем задачу, чтобы получить полные данные
         updatedTask = taskService.saveAndLogTask(updatedTask);
 
         return ResponseEntity.ok(updatedTask);
@@ -368,27 +373,93 @@ public class TaskController {
     }
 
     @DeleteMapping("/{taskId}")
-    public ResponseEntity<Void> deleteTask(@PathVariable Long taskId) {
+    public ResponseEntity<Void> deleteTask(
+            @PathVariable Long taskId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has DELETE_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_TASKS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
         taskService.deleteTask(taskId);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/column/{columnId}")
-    public ResponseEntity<Void> deleteAllTasksByColumn(@PathVariable Long columnId) {
+    public ResponseEntity<Void> deleteAllTasksByColumn(
+            @PathVariable Long columnId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get board ID for permission check
+        DashBoardColumn column = taskService.getColumnById(columnId);
+        if (column == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = column.getBoard().getId();
+        
+        // Check if user has DELETE_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_TASKS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
         taskService.deleteAllTasksByColumn(columnId);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/reorder")
-    public ResponseEntity<Void> reorderTasks(@RequestBody List<Long> taskIds) {
+    public ResponseEntity<Void> reorderTasks(
+            @RequestBody List<Long> taskIds,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get first task to check permissions
+        if (taskIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        Task task = taskService.getTaskById(taskIds.get(0)).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has MOVE_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
         taskService.updateTasksPositions(taskIds);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/{taskId}/move")
     public ResponseEntity<Task> moveTaskToColumn(
             @PathVariable Long taskId,
-            @RequestBody Map<String, Object> payload) {
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has MOVE_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+            return ResponseEntity.status(403).body(null);
+        }
         
         Long columnId = Long.parseLong(safeStringValue(payload.get("columnId")));
         Integer position = Integer.parseInt(safeStringValue(payload.get("position")));
@@ -400,31 +471,112 @@ public class TaskController {
     @PostMapping("/{taskId}/participants/{userId}")
     public ResponseEntity<Task> addParticipantToTask(
             @PathVariable Long taskId,
-            @PathVariable Long userId) {
+            @PathVariable Long userId,
+            @AuthenticationPrincipal User currentUser) {
         
-        Task task = taskService.addParticipantToTask(taskId, userId);
-        return ResponseEntity.ok(task);
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has EDIT_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        Task updatedTask = taskService.addParticipantToTask(taskId, userId);
+        return ResponseEntity.ok(updatedTask);
     }
 
     @DeleteMapping("/{taskId}/participants/{userId}")
     public ResponseEntity<Task> removeParticipantFromTask(
             @PathVariable Long taskId,
-            @PathVariable Long userId) {
+            @PathVariable Long userId,
+            @AuthenticationPrincipal User currentUser) {
         
-        Task task = taskService.removeParticipantFromTask(taskId, userId);
-        return ResponseEntity.ok(task);
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has EDIT_TASKS right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        Task updatedTask = taskService.removeParticipantFromTask(taskId, userId);
+        return ResponseEntity.ok(updatedTask);
     }
 
     @GetMapping("/{taskId}/participants")
-    public ResponseEntity<Set<User>> getTaskParticipants(@PathVariable Long taskId) {
-        Set<User> participants = taskService.getTaskParticipants(taskId);
-        return ResponseEntity.ok(participants);
+    public ResponseEntity<Set<User>> getTaskParticipants(
+            @PathVariable Long taskId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get the task to check permissions
+        Task task = taskService.getTaskById(taskId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = task.getColumn().getBoard().getId();
+        
+        // Check if user has VIEW_BOARD right on the board
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        return ResponseEntity.ok(taskService.getTaskParticipants(taskId));
     }
 
     @PutMapping("/column/{columnId}/reorder")
-    public ResponseEntity<Void> reorderTasksInColumn(@PathVariable Long columnId, @RequestBody List<Long> taskIds) {
-        // Можно добавить проверку, что все taskIds действительно принадлежат этому columnId
+    public ResponseEntity<Void> reorderTasksInColumn(
+            @PathVariable Long columnId,
+            @RequestBody List<Long> taskIds,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Get board ID for permission check
+        DashBoardColumn column = taskService.getColumnById(columnId);
+        if (column == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        Long boardId = column.getBoard().getId();
+        
+        // Check if user has MOVE_TASKS right
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
+        // Verify all tasks belong to this column
+        for (Long taskId : taskIds) {
+            Task task = taskService.getTaskById(taskId).orElse(null);
+            if (task == null || !task.getColumn().getId().equals(columnId)) {
+                return ResponseEntity.badRequest().build();
+            }
+        }
+        
         taskService.updateTasksPositions(taskIds);
         return ResponseEntity.ok().build();
+    }
+    
+    /**
+     * Получает все задачи, в которых текущий пользователь является участником
+     * @param authentication данные аутентификации текущего пользователя
+     * @return список всех задач пользователя
+     */
+    @GetMapping("/my")
+    public ResponseEntity<List<Task>> getMyTasks(Authentication authentication) {
+        String username = authentication.getName();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        return ResponseEntity.ok(taskService.getUserTasksById(user.getId()));
     }
 } 

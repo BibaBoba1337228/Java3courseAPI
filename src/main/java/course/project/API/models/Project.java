@@ -20,7 +20,7 @@ public class Project {
     @Column
     private String description;
 
-    @ManyToMany
+    @ManyToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
         name = "project_participants",
         joinColumns = @JoinColumn(name = "project_id"),
@@ -38,6 +38,9 @@ public class Project {
     
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProjectUserRight> userRights = new ArrayList<>();
+
+    @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Invitation> invitations = new ArrayList<>();
 
     public Project() {
     }
@@ -129,8 +132,27 @@ public class Project {
     }
     
     public void addUserRight(User user, ProjectRight right) {
-        ProjectUserRight userRight = new ProjectUserRight(this, user, right);
-        userRights.add(userRight);
+        try {
+            if (user == null) {
+                throw new IllegalArgumentException("User must not be null");
+            }
+            if (right == null) {
+                throw new IllegalArgumentException("ProjectRight must not be null");
+            }
+            if (user.getId() == null) {
+                throw new IllegalArgumentException("User ID must not be null");
+            }
+            if (this.getId() == null) {
+                throw new IllegalArgumentException("Project ID must not be null");
+            }
+            
+            ProjectUserRight userRight = new ProjectUserRight(this, user, right);
+            userRights.add(userRight);
+        } catch (Exception e) {
+            System.err.println("Error in addUserRight: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
     
     public void removeUserRight(User user, ProjectRight right) {
@@ -143,5 +165,13 @@ public class Project {
         }
         return userRights.stream()
                 .anyMatch(r -> r.getUser().equals(user) && r.getRight() == right);
+    }
+
+    public List<Invitation> getInvitations() {
+        return invitations;
+    }
+    
+    public void setInvitations(List<Invitation> invitations) {
+        this.invitations = invitations;
     }
 } 

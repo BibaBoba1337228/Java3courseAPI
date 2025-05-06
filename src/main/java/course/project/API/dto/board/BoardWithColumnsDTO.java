@@ -2,6 +2,7 @@ package course.project.API.dto.board;
 
 import course.project.API.dto.user.UserResponse;
 import java.util.Set;
+import java.util.List;
 
 public class BoardWithColumnsDTO {
     private Long id;
@@ -9,7 +10,7 @@ public class BoardWithColumnsDTO {
     private String description;
     private Long projectId;
     private Set<UserResponse> participants;
-    private Set<ColumnWithTasksDTO> columns;
+    private List<ColumnWithTasksDTO> columns;
     private Set<TagDTO> tags;
     
     public BoardWithColumnsDTO() {
@@ -55,11 +56,11 @@ public class BoardWithColumnsDTO {
         this.participants = participants;
     }
     
-    public Set<ColumnWithTasksDTO> getColumns() {
+    public List<ColumnWithTasksDTO> getColumns() {
         return columns;
     }
     
-    public void setColumns(Set<ColumnWithTasksDTO> columns) {
+    public void setColumns(List<ColumnWithTasksDTO> columns) {
         this.columns = columns;
     }
     

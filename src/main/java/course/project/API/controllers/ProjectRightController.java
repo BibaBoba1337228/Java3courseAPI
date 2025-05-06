@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import course.project.API.models.User;
+import course.project.API.repositories.ProjectRepository;
 
 import java.util.Set;
 
@@ -16,10 +17,12 @@ import java.util.Set;
 public class ProjectRightController {
 
     private final ProjectRightService projectRightService;
+    private final ProjectRepository projectRepository;
 
     @Autowired
-    public ProjectRightController(ProjectRightService projectRightService) {
+    public ProjectRightController(ProjectRightService projectRightService, ProjectRepository projectRepository) {
         this.projectRightService = projectRightService;
+        this.projectRepository = projectRepository;
     }
 
     @PostMapping("/users")
@@ -52,6 +55,22 @@ public class ProjectRightController {
         Set<ProjectRight> rights = projectRightService.getUserProjectRights(projectId, userId);
         return ResponseEntity.ok(rights);
     }
+    
+    @GetMapping("/users/username/{username}")
+    public ResponseEntity<Set<ProjectRight>> getUserRightsByUsername(
+            @PathVariable Long projectId,
+            @PathVariable String username,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Check if current user has VIEW_PROJECT right or is requesting their own rights
+        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT) 
+                && !currentUser.getUsername().equals(username)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        Set<ProjectRight> rights = projectRightService.getUserProjectRightsByUsername(projectId, username);
+        return ResponseEntity.ok(rights);
+    }
 
     @PostMapping("/grant")
     public ResponseEntity<?> grantRight(
@@ -59,17 +78,65 @@ public class ProjectRightController {
             @RequestBody RightDto rightDto,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if current user has MANAGE_RIGHTS right
-        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_RIGHTS)) {
-            return ResponseEntity.status(403).body("You don't have permission to manage rights in this project");
-        }
-        
         try {
-            ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
-            projectRightService.grantProjectRight(projectId, rightDto.getUserId(), right);
-            return ResponseEntity.ok().build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid right name");
+            // Validation - check required parameters
+            if (projectId == null) {
+                return ResponseEntity.badRequest().body("Project ID must not be null");
+            }
+            
+            if (rightDto == null) {
+                return ResponseEntity.badRequest().body("Request body cannot be null");
+            }
+            
+            if (rightDto.getRightName() == null || rightDto.getRightName().isEmpty()) {
+                return ResponseEntity.badRequest().body("Right name must be provided");
+            }
+            
+            if ((rightDto.getUsername() == null || rightDto.getUsername().isEmpty()) 
+                    && rightDto.getUserId() == null) {
+                return ResponseEntity.badRequest().body("Either username or userId must be provided");
+            }
+            
+            // Check if current user has MANAGE_RIGHTS right
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_RIGHTS)) {
+                return ResponseEntity.status(403).body("You don't have permission to manage rights in this project");
+            }
+            
+            // Check if trying to modify project owner's rights
+            boolean isTargetUserOwner = false;
+            if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                isTargetUserOwner = projectRepository.findById(projectId)
+                    .map(project -> project.getOwner().getUsername().equals(rightDto.getUsername()))
+                    .orElse(false);
+            } else if (rightDto.getUserId() != null) {
+                isTargetUserOwner = projectRepository.findById(projectId)
+                    .map(project -> project.getOwner().getId().equals(rightDto.getUserId()))
+                    .orElse(false);
+            }
+            
+            if (isTargetUserOwner) {
+                return ResponseEntity.badRequest().body("Cannot modify project owner's rights. Project owners always have all rights.");
+            }
+            
+            try {
+                ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
+                
+                // If username is provided, use it instead of userId
+                if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                    projectRightService.grantProjectRightByUsername(projectId, rightDto.getUsername(), right);
+                } else if (rightDto.getUserId() != null) {
+                    projectRightService.grantProjectRight(projectId, rightDto.getUserId(), right);
+                }
+                
+                return ResponseEntity.ok().build();
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body("Invalid right name: " + rightDto.getRightName());
+            }
+        } catch (Exception e) {
+            // Log the full error for debugging
+            System.err.println("Error in grantRight: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body("Error granting right: " + e.getMessage());
         }
     }
 
@@ -79,17 +146,65 @@ public class ProjectRightController {
             @RequestBody RightDto rightDto,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if current user has MANAGE_RIGHTS right
-        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_RIGHTS)) {
-            return ResponseEntity.status(403).body("You don't have permission to manage rights in this project");
-        }
-        
         try {
-            ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
-            projectRightService.revokeProjectRight(projectId, rightDto.getUserId(), right);
-            return ResponseEntity.ok().build();
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid right name");
+            // Validation - check required parameters
+            if (projectId == null) {
+                return ResponseEntity.badRequest().body("Project ID must not be null");
+            }
+            
+            if (rightDto == null) {
+                return ResponseEntity.badRequest().body("Request body cannot be null");
+            }
+            
+            if (rightDto.getRightName() == null || rightDto.getRightName().isEmpty()) {
+                return ResponseEntity.badRequest().body("Right name must be provided");
+            }
+            
+            if ((rightDto.getUsername() == null || rightDto.getUsername().isEmpty()) 
+                    && rightDto.getUserId() == null) {
+                return ResponseEntity.badRequest().body("Either username or userId must be provided");
+            }
+            
+            // Check if current user has MANAGE_RIGHTS right
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_RIGHTS)) {
+                return ResponseEntity.status(403).body("You don't have permission to manage rights in this project");
+            }
+            
+            // Check if trying to modify project owner's rights
+            boolean isTargetUserOwner = false;
+            if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                isTargetUserOwner = projectRepository.findById(projectId)
+                    .map(project -> project.getOwner().getUsername().equals(rightDto.getUsername()))
+                    .orElse(false);
+            } else if (rightDto.getUserId() != null) {
+                isTargetUserOwner = projectRepository.findById(projectId)
+                    .map(project -> project.getOwner().getId().equals(rightDto.getUserId()))
+                    .orElse(false);
+            }
+            
+            if (isTargetUserOwner) {
+                return ResponseEntity.badRequest().body("Cannot modify project owner's rights. Project owners always have all rights.");
+            }
+            
+            try {
+                ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
+                
+                // If username is provided, use it instead of userId
+                if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                    projectRightService.revokeProjectRightByUsername(projectId, rightDto.getUsername(), right);
+                } else if (rightDto.getUserId() != null) {
+                    projectRightService.revokeProjectRight(projectId, rightDto.getUserId(), right);
+                }
+                
+                return ResponseEntity.ok().build();
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body("Invalid right name: " + rightDto.getRightName());
+            }
+        } catch (Exception e) {
+            // Log the full error for debugging
+            System.err.println("Error in revokeRight: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body("Error revoking right: " + e.getMessage());
         }
     }
 

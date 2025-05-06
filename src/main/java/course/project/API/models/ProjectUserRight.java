@@ -20,13 +20,29 @@ public class ProjectUserRight {
     private User user;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "right_name", nullable = false)
+    @Column(name = "right_name", nullable = false, length = 50)
     private ProjectRight right;
 
     public ProjectUserRight() {
     }
 
     public ProjectUserRight(Project project, User user, ProjectRight right) {
+        if (project == null) {
+            throw new IllegalArgumentException("Project must not be null");
+        }
+        if (user == null) {
+            throw new IllegalArgumentException("User must not be null");
+        }
+        if (right == null) {
+            throw new IllegalArgumentException("Right must not be null");
+        }
+        if (project.getId() == null) {
+            throw new IllegalArgumentException("Project ID must not be null");
+        }
+        if (user.getId() == null) {
+            throw new IllegalArgumentException("User ID must not be null");
+        }
+        
         this.project = project;
         this.user = user;
         this.right = right;

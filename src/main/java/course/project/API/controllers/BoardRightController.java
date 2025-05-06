@@ -39,21 +39,27 @@ public class BoardRightController {
             @RequestBody Long userId,
             @AuthenticationPrincipal User currentUser) {
         
-        Board board = boardRepository.findById(boardId)
-                .orElseThrow(() -> new RuntimeException("Board not found with id: " + boardId));
-        Long projectId = board.getProject().getId();
-        
-        // Check if current user has MANAGE_MEMBERS right on the board
+        // Check if current user has MANAGE_MEMBERS right
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).body("You don't have permission to add users to this board");
         }
         
-        // Check if target user is a project member
-        if (!projectRightService.hasProjectRight(projectId, userId, ProjectRight.VIEW_PROJECT)) {
-            return ResponseEntity.status(400).body("User must be a project member first");
+        boardRightService.addUserToBoard(boardId, userId);
+        return ResponseEntity.ok().build();
+    }
+    
+    @PostMapping("/users/username")
+    public ResponseEntity<?> addUserToBoardByUsername(
+            @PathVariable Long boardId,
+            @RequestBody String username,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Check if current user has MANAGE_MEMBERS right
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
+            return ResponseEntity.status(403).body("You don't have permission to add users to this board");
         }
         
-        boardRightService.addUserToBoard(boardId, userId);
+        boardRightService.addUserToBoardByUsername(boardId, username);
         return ResponseEntity.ok().build();
     }
 
@@ -72,6 +78,22 @@ public class BoardRightController {
         Set<BoardRight> rights = boardRightService.getUserBoardRights(boardId, userId);
         return ResponseEntity.ok(rights);
     }
+    
+    @GetMapping("/users/username/{username}")
+    public ResponseEntity<Set<BoardRight>> getUserRightsByUsername(
+            @PathVariable Long boardId,
+            @PathVariable String username,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Check if current user has VIEW_BOARD right or is requesting their own rights
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD) 
+                && !currentUser.getUsername().equals(username)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        Set<BoardRight> rights = boardRightService.getUserBoardRightsByUsername(boardId, username);
+        return ResponseEntity.ok(rights);
+    }
 
     @PostMapping("/grant")
     public ResponseEntity<?> grantRight(
@@ -86,7 +108,16 @@ public class BoardRightController {
         
         try {
             BoardRight right = BoardRight.valueOf(rightDto.getRightName());
-            boardRightService.grantBoardRight(boardId, rightDto.getUserId(), right);
+            
+            // If username is provided, use it instead of userId
+            if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                boardRightService.grantBoardRightByUsername(boardId, rightDto.getUsername(), right);
+            } else if (rightDto.getUserId() != null) {
+                boardRightService.grantBoardRight(boardId, rightDto.getUserId(), right);
+            } else {
+                return ResponseEntity.badRequest().body("Either userId or username must be provided");
+            }
+            
             return ResponseEntity.ok().build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid right name");
@@ -106,7 +137,16 @@ public class BoardRightController {
         
         try {
             BoardRight right = BoardRight.valueOf(rightDto.getRightName());
-            boardRightService.revokeBoardRight(boardId, rightDto.getUserId(), right);
+            
+            // If username is provided, use it instead of userId
+            if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
+                boardRightService.revokeBoardRightByUsername(boardId, rightDto.getUsername(), right);
+            } else if (rightDto.getUserId() != null) {
+                boardRightService.revokeBoardRight(boardId, rightDto.getUserId(), right);
+            } else {
+                return ResponseEntity.badRequest().body("Either userId or username must be provided");
+            }
+            
             return ResponseEntity.ok().build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid right name");
@@ -125,6 +165,21 @@ public class BoardRightController {
         }
         
         boardRightService.removeUserFromBoard(boardId, userId);
+        return ResponseEntity.ok().build();
+    }
+    
+    @DeleteMapping("/users/username/{username}")
+    public ResponseEntity<?> removeUserFromBoardByUsername(
+            @PathVariable Long boardId,
+            @PathVariable String username,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Check if current user has MANAGE_MEMBERS right
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
+            return ResponseEntity.status(403).body("You don't have permission to remove users from this board");
+        }
+        
+        boardRightService.removeUserFromBoardByUsername(boardId, username);
         return ResponseEntity.ok().build();
     }
 

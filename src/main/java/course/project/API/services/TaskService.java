@@ -401,6 +401,29 @@ public class TaskService {
         return task.getParticipants();
     }
     
+    /**
+     * Получает все задачи, в которых пользователь является участником
+     * @param userId ID пользователя
+     * @return список задач пользователя
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getAllUserTasks(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
+        
+        return taskRepository.findByParticipantsContains(user);
+    }
+    
+    /**
+     * Получает все задачи пользователя по его ID (альтернативная реализация через запрос)
+     * @param userId ID пользователя
+     * @return список задач пользователя
+     */
+    @Transactional(readOnly = true)
+    public List<Task> getUserTasksById(Long userId) {
+        return taskRepository.findAllTasksByUserId(userId);
+    }
+    
     private String generateRandomColor() {
         // Generate a random hex color
         String[] colors = {
@@ -411,5 +434,16 @@ public class TaskService {
         
         int randomIndex = (int) (Math.random() * colors.length);
         return colors[randomIndex];
+    }
+
+    /**
+     * Get a column by ID
+     * 
+     * @param columnId Column ID
+     * @return The column, or null if not found
+     */
+    @Transactional(readOnly = true)
+    public DashBoardColumn getColumnById(Long columnId) {
+        return columnRepository.findById(columnId).orElse(null);
     }
 } 
