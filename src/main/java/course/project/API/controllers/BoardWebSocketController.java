@@ -3,7 +3,9 @@ package course.project.API.controllers;
 import course.project.API.dto.board.ColumnWithTasksDTO;
 import course.project.API.dto.board.TaskDTO;
 import course.project.API.dto.websocket.WebSocketMessage;
+import course.project.API.models.BoardRight;
 import course.project.API.models.DashBoardColumn;
+import course.project.API.services.BoardRightService;
 import course.project.API.services.BoardService;
 import course.project.API.services.WebSocketService;
 import org.slf4j.Logger;
@@ -27,11 +29,13 @@ public class BoardWebSocketController {
 
     private final WebSocketService webSocketService;
     private final BoardService boardService;
+    private final BoardRightService boardRightService;
 
     @Autowired
-    public BoardWebSocketController(WebSocketService webSocketService, BoardService boardService) {
+    public BoardWebSocketController(WebSocketService webSocketService, BoardService boardService, BoardRightService boardRightService) {
         this.webSocketService = webSocketService;
         this.boardService = boardService;
+        this.boardRightService = boardRightService;
     }
 
     // Обработка подключения к доске
@@ -229,6 +233,20 @@ public class BoardWebSocketController {
                 return;
             }
             
+            // Проверяем наличие необходимых полей в каждой колонке
+            for (Map<String, Object> column : columns) {
+                if (!column.containsKey("id") || !column.containsKey("position")) {
+                    logger.error("Each column must have both 'id' and 'position' fields");
+                    return;
+                }
+                
+                // Проверяем, что position не null
+                if (column.get("position") == null) {
+                    logger.error("Column position cannot be null");
+                    return;
+                }
+            }
+            
             // Обновляем порядок колонок через сервис
             boolean reordered = boardService.reorderColumns(boardId, columns);
             
@@ -248,6 +266,24 @@ public class BoardWebSocketController {
         logger.info("Processing CREATE_TASK for board {}", boardId);
         
         try {
+            // Проверяем права пользователя на создание задач
+            String username = (String) payload.get("initiatedBy");
+            if (username == null) {
+                logger.error("Username is required for task creation");
+                return;
+            }
+            
+            // Проверка прав на создание задач
+            if (!boardRightService.hasBoardRightByUsername(boardId, username, BoardRight.CREATE_TASKS)) {
+                logger.error("User {} does not have CREATE_TASKS right for board {}", username, boardId);
+                
+                Map<String, Object> errorPayload = new HashMap<>();
+                errorPayload.put("error", "Access denied");
+                errorPayload.put("action", "CREATE_TASK");
+                webSocketService.sendPrivateMessageToUser(username, "ERROR", errorPayload);
+                return;
+            }
+            
             Object columnIdObj = payload.get("columnId");
             if (columnIdObj == null) {
                 logger.error("Column ID is required for task creation");
@@ -286,6 +322,24 @@ public class BoardWebSocketController {
         logger.info("Processing UPDATE_TASK for board {}", boardId);
         
         try {
+            // Проверяем права пользователя на редактирование задач
+            String username = (String) payload.get("initiatedBy");
+            if (username == null) {
+                logger.error("Username is required for task update");
+                return;
+            }
+            
+            // Проверка прав на редактирование задач
+            if (!boardRightService.hasBoardRightByUsername(boardId, username, BoardRight.EDIT_TASKS)) {
+                logger.error("User {} does not have EDIT_TASKS right for board {}", username, boardId);
+                
+                Map<String, Object> errorPayload = new HashMap<>();
+                errorPayload.put("error", "Access denied");
+                errorPayload.put("action", "UPDATE_TASK");
+                webSocketService.sendPrivateMessageToUser(username, "ERROR", errorPayload);
+                return;
+            }
+            
             Object taskIdObj = payload.get("taskId");
             if (taskIdObj == null) {
                 logger.error("Task ID is required for update");
@@ -322,6 +376,24 @@ public class BoardWebSocketController {
         logger.info("Processing DELETE_TASK for board {}", boardId);
         
         try {
+            // Проверяем права пользователя на удаление задач
+            String username = (String) payload.get("initiatedBy");
+            if (username == null) {
+                logger.error("Username is required for task deletion");
+                return;
+            }
+            
+            // Проверка прав на удаление задач
+            if (!boardRightService.hasBoardRightByUsername(boardId, username, BoardRight.DELETE_TASKS)) {
+                logger.error("User {} does not have DELETE_TASKS right for board {}", username, boardId);
+                
+                Map<String, Object> errorPayload = new HashMap<>();
+                errorPayload.put("error", "Access denied");
+                errorPayload.put("action", "DELETE_TASK");
+                webSocketService.sendPrivateMessageToUser(username, "ERROR", errorPayload);
+                return;
+            }
+            
             Object taskIdObj = payload.get("taskId");
             if (taskIdObj == null) {
                 logger.error("Task ID is required for deletion");
@@ -349,6 +421,24 @@ public class BoardWebSocketController {
         logger.info("Processing MOVE_TASK for board {}", boardId);
         
         try {
+            // Проверяем права пользователя на перемещение задач
+            String username = (String) payload.get("initiatedBy");
+            if (username == null) {
+                logger.error("Username is required for task movement");
+                return;
+            }
+            
+            // Проверка прав на перемещение задач
+            if (!boardRightService.hasBoardRightByUsername(boardId, username, BoardRight.MOVE_TASKS)) {
+                logger.error("User {} does not have MOVE_TASKS right for board {}", username, boardId);
+                
+                Map<String, Object> errorPayload = new HashMap<>();
+                errorPayload.put("error", "Access denied");
+                errorPayload.put("action", "MOVE_TASK");
+                webSocketService.sendPrivateMessageToUser(username, "ERROR", errorPayload);
+                return;
+            }
+            
             Object taskIdObj = payload.get("taskId");
             Object sourceColumnIdObj = payload.get("sourceColumnId");
             Object targetColumnIdObj = payload.get("targetColumnId");

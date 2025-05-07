@@ -115,7 +115,7 @@ public class BoardService {
 
                     // Add users with ACCESS_ALL_BOARDS marker to this board
                     addUsersWithAllBoardsAccessToBoard(project, board);
-                    
+
                     // Сохраняем доску перед созданием тегов
                     Board savedBoard = boardRepository.save(board);
                     
@@ -192,16 +192,16 @@ public class BoardService {
             }
             
             // Обновляем основные поля
-            board.setTitle(boardDTO.getTitle());
-            board.setDescription(boardDTO.getDescription());
+                    board.setTitle(boardDTO.getTitle());
+                    board.setDescription(boardDTO.getDescription());
             
             // Обновляем участников, сохраняя существующие
-            if (boardDTO.getParticipantIds() != null) {
+                    if (boardDTO.getParticipantIds() != null) {
                 // Создаем новый список участников
                 Set<User> updatedParticipants = new HashSet<>(board.getParticipants());
                 
                 // Добавляем новых участников из запроса
-                for (Long userId : boardDTO.getParticipantIds()) {
+                        for (Long userId : boardDTO.getParticipantIds()) {
                     if (userId != null) {
                         Optional<User> userOpt = userRepository.findById(userId);
                         if (userOpt.isPresent()) {
@@ -219,14 +219,14 @@ public class BoardService {
                 if (board.getProject() != null && board.getProject().getOwner() != null) {
                     User projectOwner = board.getProject().getOwner();
                     updatedParticipants.add(projectOwner);
-                }
-                
+                    }
+                    
                 // Обновляем список участников
                 board.setParticipants(updatedParticipants);
             }
             
             // Обновляем существующие теги или добавляем новые
-            if (boardDTO.getTags() != null) {
+                    if (boardDTO.getTags() != null) {
                 // Удаляем все существующие теги доски
                 List<Tag> existingTags = new ArrayList<>(board.getTags());
                 for (Tag tag : existingTags) {
@@ -235,13 +235,13 @@ public class BoardService {
                 }
                 
                 // Добавляем новые теги из запроса
-                for (TagDTO tagDTO : boardDTO.getTags()) {
-                    Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
-                    board.addTag(tag);
+                        for (TagDTO tagDTO : boardDTO.getTags()) {
+                                Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
+                                board.addTag(tag);
                     tagRepository.save(tag);
-                }
-            }
-            
+                        }
+                    }
+                    
             // Сохраняем изменения доски
             Board savedBoard = boardRepository.save(board);
             
@@ -555,7 +555,18 @@ public class BoardService {
     public DashBoardColumn createColumn(Long boardId, String title, Integer position) {
         try {
             return boardRepository.findById(boardId).map(board -> {
-                DashBoardColumn column = new DashBoardColumn(title, board, position);
+                // Если position не задан, устанавливаем его в конец списка
+                Integer finalPosition = position;
+                if (finalPosition == null) {
+                    int maxPosition = board.getColumns().stream()
+                        .filter(col -> col.getPosition() != null)
+                        .map(DashBoardColumn::getPosition)
+                        .max(Integer::compare)
+                        .orElse(-1);
+                    finalPosition = maxPosition + 1;
+                }
+                
+                DashBoardColumn column = new DashBoardColumn(title, board, finalPosition);
                 return dashboardColumnRepository.save(column);
             }).orElse(null);
         } catch (Exception e) {
@@ -596,19 +607,30 @@ public class BoardService {
     public boolean reorderColumns(Long boardId, List<Map<String, Object>> columns) {
         return boardRepository.findById(boardId)
                 .map(board -> {
-                    for (Map<String, Object> columnData : columns) {
-                        Long columnId = Long.valueOf(columnData.get("id").toString());
-                        Integer position = (Integer) columnData.get("position");
-                        
-                        dashboardColumnRepository.findById(columnId)
-                                .ifPresent(column -> {
-                                    column.setPosition(position);
-                                    dashboardColumnRepository.save(column);
-                                });
+                    try {
+                        for (Map<String, Object> columnData : columns) {
+                            Long columnId = Long.valueOf(columnData.get("id").toString());
+                            Integer position = (Integer) columnData.get("position");
+                            
+                            // Проверяем, что position не null
+                            if (position == null) {
+                                logger.error("Значение position не может быть null при переупорядочивании колонки");
+                                continue;
+                            }
+                            
+                            dashboardColumnRepository.findById(columnId)
+                                    .ifPresent(column -> {
+                                        column.setPosition(position);
+                                        dashboardColumnRepository.save(column);
+                                    });
+                        }
+                        // Делаем flush чтобы гарантировать запись изменений в БД
+                        dashboardColumnRepository.flush();
+                        return true;
+                    } catch (Exception e) {
+                        logger.error("Ошибка при reorder колонок: {}", e.getMessage(), e);
+                        return false;
                     }
-                    // Делаем flush чтобы гарантировать запись изменений в БД
-                    dashboardColumnRepository.flush();
-                    return true;
                 })
                 .orElse(false);
     }

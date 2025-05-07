@@ -116,7 +116,7 @@ public class BoardController {
                     return ResponseEntity.ok(details.get());
                 } else {
                     return ResponseEntity.status(404).body(new ErrorResponse("Board not found"));
-                }
+            }
             }
             Optional<ProjectDTO> projectOpt = projectService.getProjectById(projectId);
             if (projectOpt.isEmpty()) {
@@ -183,28 +183,28 @@ public class BoardController {
             if (boardDTO.getParticipantIds() != null) {
                 boardDTO.getParticipantIds().removeIf(id -> id == null);
             }
-            
-            // Get project ID
-            Long projectId = boardService.getBoardById(boardId)
-                    .map(BoardDTO::getProjectId)
-                    .orElse(null);
-            
-            if (projectId == null) {
+        
+        // Get project ID
+        Long projectId = boardService.getBoardById(boardId)
+                .map(BoardDTO::getProjectId)
+                .orElse(null);
+        
+        if (projectId == null) {
                 return ResponseEntity.status(404).body(null);
-            }
-            
-            // Check if user is project owner - automatic permission
-            if (projectService.isProjectOwner(projectId, currentUser.getId())) {
+        }
+        
+        // Check if user is project owner - automatic permission
+        if (projectService.isProjectOwner(projectId, currentUser.getId())) {
                 return boardService.updateBoard(boardId, boardDTO)
                     .map(ResponseEntity::ok)
                     .orElse(ResponseEntity.status(404).build());
-            }
-            
-            // Check if user has EDIT_BOARDS right on the project
-            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.EDIT_BOARDS)) {
+        }
+        
+        // Check if user has EDIT_BOARDS right on the project
+        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.EDIT_BOARDS)) {
                 return ResponseEntity.status(403).body(null);
-            }
-            
+        }
+        
             return boardService.updateBoard(boardId, boardDTO)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.status(404).build());
