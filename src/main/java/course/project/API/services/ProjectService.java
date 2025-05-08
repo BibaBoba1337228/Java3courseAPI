@@ -146,41 +146,27 @@ public class ProjectService {
                 .flatMap(project -> userRepository.findById(userId)
                         .map(user -> {
                             project.removeParticipant(user);
+                            invitationRepository.findByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)
+                                    .ifPresent(invitation -> {
+                                        invitation.setStatus(InvitationStatus.REJECTED);
+                                        invitation.setUpdatedAt(LocalDateTime.now());
+                                        invitationRepository.save(invitation);
+                                    });
                             return convertToDTO(projectRepository.save(project));
                         }));
     }
 
-    @Transactional
-    public Optional<ProjectDTO> addParticipantByUsername(Long projectId, String username) {
-        return projectRepository.findById(projectId)
-                .flatMap(project -> userRepository.findByUsername(username)
-                        .or(() -> userRepository.findByName(username))
-                        .map(user -> {
-                            // Check if invitation already exists
-                            if (invitationRepository.existsByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)) {
-                                throw new IllegalStateException("Pending invitation already exists");
-                            }
-                            
-                            // Create new invitation
-                            Invitation invitation = new Invitation(project.getOwner(), user, project);
-                            invitationRepository.save(invitation);
-                            
-                            return convertToDTO(project);
-                        }));
-    }
+
 
     @Transactional
-    public Optional<ProjectResponse> addParticipantByUsernameWithResponse(Long projectId, String username) {
+    public Optional<ProjectResponse> addParticipantByIdWithResponse(Long projectId, Long id) {
         return projectRepository.findById(projectId)
-                .flatMap(project -> userRepository.findByUsername(username)
-                        .or(() -> userRepository.findByName(username))
+                .flatMap(project -> userRepository.findById(id)
                         .map(user -> {
-                            // Check if invitation already exists
                             if (invitationRepository.existsByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)) {
                                 throw new IllegalStateException("Pending invitation already exists");
                             }
                             
-                            // Create new invitation
                             Invitation invitation = new Invitation(project.getOwner(), user, project);
                             invitationRepository.save(invitation);
                             
@@ -188,26 +174,7 @@ public class ProjectService {
                         }));
     }
 
-    @Transactional
-    public Optional<ProjectDTO> removeParticipantByUsername(Long projectId, String username) {
-        return projectRepository.findById(projectId)
-                .flatMap(project -> userRepository.findByUsername(username)
-                        .or(() -> userRepository.findByName(username))
-                        .map(user -> {
-                            // Remove user from project
-                            project.removeParticipant(user);
-                            
-                            // Remove any pending invitations
-                            invitationRepository.findByRecipientAndProjectAndStatus(user, project, InvitationStatus.PENDING)
-                                    .ifPresent(invitation -> {
-                                        invitation.setStatus(InvitationStatus.REJECTED);
-                                        invitation.setUpdatedAt(LocalDateTime.now());
-                                        invitationRepository.save(invitation);
-                                    });
-                            
-                            return convertToDTO(projectRepository.save(project));
-                        }));
-    }
+
 
     public List<ProjectDTO> getMyProjects(Long userId) {
         return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
@@ -260,9 +227,9 @@ public class ProjectService {
         // Конвертируем владельца
         User owner = project.getOwner();
         UserResponse ownerResponse = new UserResponse(
-            owner.getUsername(), 
-            owner.getName(), 
-            owner.getAvatarURL()
+                owner.getId(),
+                owner.getName(),
+                owner.getAvatarURL()
         );
         response.setOwner(ownerResponse);
         
@@ -279,10 +246,9 @@ public class ProjectService {
         // Собираем существующих участников с меткой ACCEPTED
         Set<UserResponse> participantsWithStatus = project.getParticipants().stream()
             .map(user -> new UserResponse(
-                user.getUsername(),
+                user.getId(),
                 user.getName(),
-                user.getAvatarURL(),
-                InvitationStatus.ACCEPTED
+                user.getAvatarURL()
             ))
             .collect(Collectors.toSet());
         
@@ -296,10 +262,9 @@ public class ProjectService {
             
             if (!isAlreadyParticipant) {
                 participantsWithStatus.add(new UserResponse(
-                    invitedUser.getUsername(),
+                    invitedUser.getId(),
                     invitedUser.getName(),
-                    invitedUser.getAvatarURL(),
-                    invitation.getStatus()
+                    invitedUser.getAvatarURL()
                 ));
             }
         });

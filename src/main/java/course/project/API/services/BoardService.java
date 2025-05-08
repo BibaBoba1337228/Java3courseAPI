@@ -311,7 +311,11 @@ public class BoardService {
 
                     // Преобразуем участников
                     Set<UserResponse> participants = board.getParticipants().stream()
-                        .map(user -> new UserResponse(user.getUsername(), user.getName(), user.getAvatarURL()))
+                        .map(user -> new UserResponse(
+                                user.getId(),
+                                user.getName(),
+                                user.getAvatarURL()
+                        ))
                         .collect(Collectors.toSet());
                     dto.setParticipants(participants);
 
@@ -609,26 +613,19 @@ public class BoardService {
                 .map(board -> {
                     try {
                         for (Map<String, Object> columnData : columns) {
-                            Long columnId = Long.valueOf(columnData.get("id").toString());
-                            Integer position = (Integer) columnData.get("position");
-                            
-                            // Проверяем, что position не null
-                            if (position == null) {
-                                logger.error("Значение position не может быть null при переупорядочивании колонки");
-                                continue;
-                            }
+                            Long columnId = ((Number) columnData.get("id")).longValue();
+                            Integer position = ((Number) columnData.get("position")).intValue();
                             
                             dashboardColumnRepository.findById(columnId)
                                     .ifPresent(column -> {
-                                        column.setPosition(position);
-                                        dashboardColumnRepository.save(column);
+                                        if (column.getBoard().getId().equals(boardId)) {
+                                            column.setPosition(position);
+                                        }
                                     });
                         }
-                        // Делаем flush чтобы гарантировать запись изменений в БД
-                        dashboardColumnRepository.flush();
                         return true;
                     } catch (Exception e) {
-                        logger.error("Ошибка при reorder колонок: {}", e.getMessage(), e);
+                        logger.error("Error reordering columns: {}", e.getMessage(), e);
                         return false;
                     }
                 })

@@ -1,15 +1,18 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.board.BoardDTO;
 import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.dto.project.ProjectDTO;
 import course.project.API.models.BoardRight;
+import course.project.API.models.DashBoardColumn;
 import course.project.API.models.ProjectRight;
 import course.project.API.models.User;
 import course.project.API.services.BoardRightService;
 import course.project.API.services.BoardService;
 import course.project.API.services.ProjectRightService;
 import course.project.API.services.ProjectService;
+import course.project.API.services.WebSocketService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +21,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Optional;
 
 @RestController
@@ -28,14 +33,17 @@ public class BoardController {
     private final BoardRightService boardRightService;
     private final ProjectRightService projectRightService;
     private final ProjectService projectService;
+    private final WebSocketService webSocketService;
 
     @Autowired
     public BoardController(BoardService boardService, BoardRightService boardRightService, 
-                         ProjectRightService projectRightService, ProjectService projectService) {
+                         ProjectRightService projectRightService, ProjectService projectService,
+                         WebSocketService webSocketService) {
         this.boardService = boardService;
         this.boardRightService = boardRightService;
         this.projectRightService = projectRightService;
         this.projectService = projectService;
+        this.webSocketService = webSocketService;
     }
 
     @GetMapping
@@ -49,12 +57,10 @@ public class BoardController {
             @AuthenticationPrincipal User currentUser) {
         
         try {
-            // First check if user is project owner (special case)
             if (projectService.isProjectOwner(projectId, currentUser.getId())) {
                 return ResponseEntity.ok(boardService.getBoardsByProjectId(projectId));
             }
             
-            // Check if user is project participant
             Optional<ProjectDTO> projectOpt = projectService.getProjectById(projectId);
             if (projectOpt.isEmpty()) {
                 return ResponseEntity.notFound().build();
@@ -64,17 +70,14 @@ public class BoardController {
             boolean isParticipant = project.getParticipants() != null && 
                                    project.getParticipants().contains(currentUser.getUsername());
             
-            // If user is not a participant, return 403
             if (!isParticipant) {
                 return ResponseEntity.status(403).body(null);
             }
             
-            // For regular participants, only return boards where they are a participant
             List<BoardDTO> allBoards = boardService.getBoardsByProjectId(projectId);
             List<BoardDTO> userBoards = new ArrayList<>();
             
             for (BoardDTO board : allBoards) {
-                // Check if user has rights to this specific board
                 if (board.getId() != null && boardRightService.hasBoardRight(board.getId(), currentUser.getId(), BoardRight.VIEW_BOARD)) {
                     userBoards.add(board);
                 }
@@ -82,14 +85,11 @@ public class BoardController {
             
             return ResponseEntity.ok(userBoards);
         } catch (Exception e) {
-            // Log the error
             System.err.println("Error in getBoardsByProject: " + e.getMessage());
-            // Return empty list as a fallback
             return ResponseEntity.ok(List.of());
         }
     }
 
-    // Вспомогательный класс для ошибок
     class ErrorResponse {
         private String error;
         public ErrorResponse(String error) { this.error = error; }
@@ -142,14 +142,12 @@ public class BoardController {
             @RequestBody BoardDTO boardDTO,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if user is project owner - automatic permission
         if (projectService.isProjectOwner(boardDTO.getProjectId(), currentUser.getId())) {
             return boardService.createBoard(boardDTO)
                     .map(board -> ResponseEntity.status(HttpStatus.CREATED).body(board))
                     .orElse(ResponseEntity.badRequest().build());
         }
         
-        // Check if user has CREATE_BOARDS right on the project
         if (!projectRightService.hasProjectRight(boardDTO.getProjectId(), currentUser.getId(), ProjectRight.CREATE_BOARDS)) {
             return ResponseEntity.status(403).body(null);
         }
@@ -166,10 +164,8 @@ public class BoardController {
             @AuthenticationPrincipal User currentUser) {
         
         try {
-            // Устанавливаем ID доски в DTO, чтобы избежать ошибки "The given id must not be null"
             boardDTO.setId(boardId);
             
-            // Проверяем теги на null в boardDTO и устанавливаем null-безопасные значения
             if (boardDTO.getTags() != null) {
                 boardDTO.getTags().removeIf(tag -> tag == null);
                 for (var tag : boardDTO.getTags()) {
@@ -179,12 +175,10 @@ public class BoardController {
                 }
             }
             
-            // Проверяем participantIds на null в boardDTO
             if (boardDTO.getParticipantIds() != null) {
                 boardDTO.getParticipantIds().removeIf(id -> id == null);
             }
         
-        // Get project ID
         Long projectId = boardService.getBoardById(boardId)
                 .map(BoardDTO::getProjectId)
                 .orElse(null);
@@ -193,14 +187,12 @@ public class BoardController {
                 return ResponseEntity.status(404).body(null);
         }
         
-        // Check if user is project owner - automatic permission
         if (projectService.isProjectOwner(projectId, currentUser.getId())) {
                 return boardService.updateBoard(boardId, boardDTO)
                     .map(ResponseEntity::ok)
                     .orElse(ResponseEntity.status(404).build());
         }
         
-        // Check if user has EDIT_BOARDS right on the project
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.EDIT_BOARDS)) {
                 return ResponseEntity.status(403).body(null);
         }
@@ -220,7 +212,6 @@ public class BoardController {
             @PathVariable Long boardId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get project ID
         Long projectId = boardService.getBoardById(boardId)
                 .map(BoardDTO::getProjectId)
                 .orElse(null);
@@ -229,13 +220,11 @@ public class BoardController {
             return ResponseEntity.notFound().build();
         }
         
-        // Check if user is project owner - automatic permission
         if (projectService.isProjectOwner(projectId, currentUser.getId())) {
             boardService.deleteBoard(boardId);
             return ResponseEntity.noContent().build();
         }
         
-        // Check if user has DELETE_BOARDS right on the project
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.DELETE_BOARDS)) {
             return ResponseEntity.status(403).build();
         }
@@ -250,7 +239,6 @@ public class BoardController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get project ID
         Long projectId = boardService.getBoardById(boardId)
                 .map(BoardDTO::getProjectId)
                 .orElse(null);
@@ -259,7 +247,6 @@ public class BoardController {
             return ResponseEntity.notFound().build();
         }
         
-        // Check if user is project owner - automatic permission
         if (projectService.isProjectOwner(projectId, currentUser.getId())) {
             boolean added = boardService.addParticipant(boardId, userId);
             if (added) {
@@ -269,7 +256,6 @@ public class BoardController {
             }
         }
         
-        // Check if user has MANAGE_MEMBERS right on the board
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).build();
         }
@@ -288,7 +274,6 @@ public class BoardController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get project ID
         Long projectId = boardService.getBoardById(boardId)
                 .map(BoardDTO::getProjectId)
                 .orElse(null);
@@ -297,7 +282,6 @@ public class BoardController {
             return ResponseEntity.notFound().build();
         }
         
-        // Check if user is project owner - automatic permission
         if (projectService.isProjectOwner(projectId, currentUser.getId())) {
             boolean removed = boardService.removeParticipant(boardId, userId);
             if (removed) {
@@ -307,7 +291,6 @@ public class BoardController {
             }
         }
         
-        // Check if user has MANAGE_MEMBERS right on the board
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).build();
         }
@@ -318,5 +301,117 @@ public class BoardController {
         } else {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    @PostMapping("/{boardId}/columns")
+    public ResponseEntity<DashBoardColumn> createColumn(
+            @PathVariable Long boardId,
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal User currentUser) {
+        
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        String title = (String) payload.get("title");
+        Integer position = (Integer) payload.get("position");
+        
+        if (title == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        
+        DashBoardColumn column = boardService.createColumn(boardId, title, position);
+        if (column != null) {
+            Map<String, Object> notificationPayload = new HashMap<>(payload);
+            notificationPayload.put("columnId", column.getId());
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "COLUMN_CREATED", notificationPayload);
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(column);
+        }
+        
+        return ResponseEntity.badRequest().body(null);
+    }
+
+    @PutMapping("/{boardId}/columns/{columnId}")
+    public ResponseEntity<DashBoardColumn> updateColumn(
+            @PathVariable Long boardId,
+            @PathVariable Long columnId,
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal User currentUser) {
+        
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        String title = (String) payload.get("title");
+        Integer position = (Integer) payload.get("position");
+        
+        if (title == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        
+        DashBoardColumn column = boardService.updateColumn(boardId, columnId, title, position);
+        if (column != null) {
+            Map<String, Object> notificationPayload = new HashMap<>(payload);
+            notificationPayload.put("columnId", columnId);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "COLUMN_UPDATED", notificationPayload);
+            
+            return ResponseEntity.ok(column);
+        }
+        
+        return ResponseEntity.badRequest().body(null);
+    }
+
+    @DeleteMapping("/{boardId}/columns/{columnId}")
+    public ResponseEntity<Void> deleteColumn(
+            @PathVariable Long boardId,
+            @PathVariable Long columnId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
+        boolean deleted = boardService.deleteColumn(boardId, columnId);
+        if (deleted) {
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("columnId", columnId);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "COLUMN_DELETED", notificationPayload);
+            
+            return ResponseEntity.noContent().build();
+        }
+        
+        return ResponseEntity.badRequest().build();
+    }
+
+    @PutMapping("/{boardId}/columns/reorder")
+    public ResponseEntity<SimpleDTO> reorderColumns(
+            @PathVariable Long boardId,
+            @RequestBody Map<String, List<Map<String, Object>>> payload,
+            @AuthenticationPrincipal User currentUser) {
+        
+        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+            return ResponseEntity.status(403).build();
+        }
+        
+        List<Map<String, Object>> columns = payload.get("columns");
+        if (columns == null || columns.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        boolean reordered = boardService.reorderColumns(boardId, columns);
+        if (reordered) {
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("columns", columns);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "COLUMNS_REORDERED", notificationPayload);
+            
+            return ResponseEntity.ok(new SimpleDTO("Columns reordered successfully"));
+        }
+        
+        return ResponseEntity.badRequest().build();
     }
 } 

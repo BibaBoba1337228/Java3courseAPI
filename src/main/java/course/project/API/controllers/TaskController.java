@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -33,6 +34,7 @@ public class TaskController {
     private final TagService tagService;
     private final AttachmentRepository attachmentRepository;
     private final BoardRightService boardRightService;
+    private final WebSocketService webSocketService;
 
     @Autowired
     public TaskController(TaskService taskService, UserRepository userRepository, 
@@ -40,7 +42,8 @@ public class TaskController {
                           TagRepository tagRepository,
                           TagService tagService,
                           AttachmentRepository attachmentRepository,
-                          BoardRightService boardRightService) {
+                          BoardRightService boardRightService,
+                          WebSocketService webSocketService) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
@@ -48,6 +51,7 @@ public class TaskController {
         this.tagService = tagService;
         this.attachmentRepository = attachmentRepository;
         this.boardRightService = boardRightService;
+        this.webSocketService = webSocketService;
     }
 
     @GetMapping("/column/{columnId}")
@@ -234,7 +238,17 @@ public class TaskController {
             }
         }
         
-        return ResponseEntity.status(HttpStatus.CREATED).body(task);
+        if (task != null) {
+            // Add WebSocket notification
+            Map<String, Object> notificationPayload = new HashMap<>(payload);
+            notificationPayload.put("taskId", task.getId());
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(task);
+        }
+        
+        return ResponseEntity.badRequest().build();
     }
 
     @PutMapping("/{taskId}")
@@ -362,7 +376,16 @@ public class TaskController {
         // Перезагружаем задачу, чтобы получить полные данные
         updatedTask = taskService.saveAndLogTask(updatedTask);
 
-        return ResponseEntity.ok(updatedTask);
+        if (updatedTask != null) {
+            // Add WebSocket notification
+            Map<String, Object> notificationPayload = new HashMap<>(payload);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
+            
+            return ResponseEntity.ok(updatedTask);
+        }
+        
+        return ResponseEntity.badRequest().build();
     }
 
     private String safeStringValue(Object obj) {
@@ -391,6 +414,13 @@ public class TaskController {
         }
         
         taskService.deleteTask(taskId);
+        
+        // Add WebSocket notification
+        Map<String, Object> notificationPayload = new HashMap<>();
+        notificationPayload.put("taskId", taskId);
+        notificationPayload.put("initiatedBy", currentUser.getUsername());
+        webSocketService.sendMessageToBoard(boardId, "TASK_DELETED", notificationPayload);
+        
         return ResponseEntity.noContent().build();
     }
 
@@ -465,7 +495,17 @@ public class TaskController {
         Integer position = Integer.parseInt(safeStringValue(payload.get("position")));
         
         Task movedTask = taskService.moveTaskToColumn(taskId, columnId, position);
-        return ResponseEntity.ok(movedTask);
+        if (movedTask != null) {
+            // Add WebSocket notification
+            Map<String, Object> notificationPayload = new HashMap<>(payload);
+            notificationPayload.put("taskId", taskId);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "TASK_MOVED", notificationPayload);
+            
+            return ResponseEntity.ok(movedTask);
+        }
+        
+        return ResponseEntity.badRequest().build();
     }
 
     @PostMapping("/{taskId}/participants/{userId}")

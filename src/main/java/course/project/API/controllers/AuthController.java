@@ -53,7 +53,7 @@ public class AuthController {
             req.getSession().setAttribute("SPRING_SECURITY_CONTEXT", SecurityContextHolder.getContext());
             
             return ResponseEntity.ok(new UserResponse(
-                registered.getUsername(),
+                registered.getId(),
                 registered.getName(),
                 registered.getAvatarURL()
             ));
@@ -88,7 +88,7 @@ public class AuthController {
             logger.info("Login successful for user: {}", user.getUsername());
             
             return ResponseEntity.ok(new UserResponse(
-                user.getUsername(),
+                user.getId(),
                 user.getName(),
                 user.getAvatarURL()
             ));
@@ -115,7 +115,7 @@ public class AuthController {
         user.setAvatarURL(profile.getAvatarURL());
         User updatedUser = authService.updateUser(user);
         return ResponseEntity.ok(new UserResponse(
-            updatedUser.getUsername(),
+            updatedUser.getId(),
             updatedUser.getName(),
             updatedUser.getAvatarURL()
         ));

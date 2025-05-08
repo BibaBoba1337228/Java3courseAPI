@@ -125,38 +125,32 @@ public class ProjectController {
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/{projectId}/participants/{username}")
+    @PostMapping("/{projectId}/participants/{id}")
     public ResponseEntity<?> addParticipant(
             @PathVariable Long projectId,
-            @PathVariable String username,
+            @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if user has MANAGE_MEMBERS right
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).body("You don't have permission to add users to this project");
         }
         
-        return projectService.addParticipantByUsernameWithResponse(projectId, username)
-                .map(project -> {
-                    // Создаем список с одним проектом для соответствия запрошенному формату ответа
-                    List<ProjectResponse> projectList = List.of(project);
-                    return ResponseEntity.ok(projectList);
-                })
+        return projectService.addParticipant(projectId, id)
+                .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @DeleteMapping("/{projectId}/participants/{username}")
+    @DeleteMapping("/{projectId}/participants/{id}")
     public ResponseEntity<ProjectDTO> removeParticipant(
             @PathVariable Long projectId,
-            @PathVariable String username,
+            @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if user has MANAGE_MEMBERS right
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).body(null);
         }
         
-        return projectService.removeParticipantByUsername(projectId, username)
+        return projectService.removeParticipant(projectId, id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

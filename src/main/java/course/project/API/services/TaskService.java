@@ -360,13 +360,53 @@ public class TaskService {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("Task not found with id: " + taskId));
         
-        DashBoardColumn column = columnRepository.findById(columnId)
+        DashBoardColumn sourceColumn = task.getColumn();
+        DashBoardColumn targetColumn = columnRepository.findById(columnId)
                 .orElseThrow(() -> new IllegalArgumentException("Column not found with id: " + columnId));
         
-        task.setColumn(column);
-        task.setPosition(position);
+        // If moving within the same column
+        if (sourceColumn.getId().equals(targetColumn.getId())) {
+            // Get all tasks in the column ordered by position
+            List<Task> tasks = taskRepository.findByColumnOrderByPosition(targetColumn);
+            
+            // Remove the task from its current position
+            tasks.remove(task);
+            
+            // Insert the task at the new position
+            tasks.add(position, task);
+            
+            // Update positions for all tasks
+            for (int i = 0; i < tasks.size(); i++) {
+                tasks.get(i).setPosition(i);
+                taskRepository.save(tasks.get(i));
+            }
+        } else {
+            // Moving to a different column
+            // Get tasks from both columns
+            List<Task> sourceTasks = taskRepository.findByColumnOrderByPosition(sourceColumn);
+            List<Task> targetTasks = taskRepository.findByColumnOrderByPosition(targetColumn);
+            
+            // Remove task from source column
+            sourceTasks.remove(task);
+            
+            // Update positions in source column
+            for (int i = 0; i < sourceTasks.size(); i++) {
+                sourceTasks.get(i).setPosition(i);
+                taskRepository.save(sourceTasks.get(i));
+            }
+            
+            // Insert task into target column
+            targetTasks.add(position, task);
+            task.setColumn(targetColumn);
+            
+            // Update positions in target column
+            for (int i = 0; i < targetTasks.size(); i++) {
+                targetTasks.get(i).setPosition(i);
+                taskRepository.save(targetTasks.get(i));
+            }
+        }
         
-        return taskRepository.save(task);
+        return task;
     }
 
     @Transactional
