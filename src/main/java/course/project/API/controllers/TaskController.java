@@ -238,14 +238,18 @@ public class TaskController {
             }
         }
         
-        if (task != null) {
+        Task finalTask = task;
+        if (finalTask != null) {
             // Add WebSocket notification
             Map<String, Object> notificationPayload = new HashMap<>(payload);
-            notificationPayload.put("taskId", task.getId());
+            notificationPayload.put("taskId", finalTask.getId());
             notificationPayload.put("initiatedBy", currentUser.getUsername());
             webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
             
-            return ResponseEntity.status(HttpStatus.CREATED).body(task);
+            // Перезагружаем задачу, чтобы получить полные данные, включая участников
+            Task updatedTask = taskService.saveAndLogTask(finalTask);
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(updatedTask);
         }
         
         return ResponseEntity.badRequest().build();

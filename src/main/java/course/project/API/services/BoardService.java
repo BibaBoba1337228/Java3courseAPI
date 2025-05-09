@@ -1,5 +1,6 @@
 package course.project.API.services;
 
+import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.board.*;
 import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.models.Board;
@@ -32,6 +33,7 @@ import java.util.stream.Collectors;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.dto.board.ColumnWithTasksDTO;
 import course.project.API.dto.board.TagDTO;
+import course.project.API.dto.board.TaskDTO;
 
 @Service
 public class BoardService {
@@ -328,8 +330,52 @@ public class BoardService {
                             colDto.setName(column.getName());
                             colDto.setBoardId(board.getId());
                             colDto.setPosition(column.getPosition());
-                            // Преобразуем задачи, если нужно (оставим пустым, если не требуется)
-                            colDto.setTasks(Collections.emptySet());
+                            
+                            // Загружаем задачи для колонки и сортируем их по позиции
+                            Set<TaskDTO> tasks = column.getTasks().stream()
+                                .sorted(Comparator.comparing(Task::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
+                                .map(task -> {
+                                    TaskDTO taskDto = new TaskDTO();
+                                    taskDto.setId(task.getId());
+                                    taskDto.setTitle(task.getTitle());
+                                    taskDto.setDescription(task.getDescription());
+                                    taskDto.setColumnId(column.getId());
+                                    taskDto.setPosition(task.getPosition());
+                                    
+                                    // Добавляем даты, если они есть
+                                    if (task.getStartDate() != null) {
+                                        taskDto.setStartDate(task.getStartDate());
+                                    }
+                                    if (task.getEndDate() != null) {
+                                        taskDto.setEndDate(task.getEndDate());
+                                    }
+                                    
+                                    // Добавляем тег, если он есть
+                                    if (task.getTag() != null) {
+                                        TagDTO tagDto = new TagDTO(
+                                            task.getTag().getId(),
+                                            task.getTag().getName(),
+                                            task.getTag().getColor(),
+                                            board.getId()
+                                        );
+                                        taskDto.setTag(tagDto);
+                                    }
+                                    
+                                    // Добавляем участников задачи
+                                    Set<UserResponse> taskParticipants = task.getParticipants().stream()
+                                        .map(user -> new UserResponse(
+                                            user.getId(),
+                                            user.getName(),
+                                            user.getAvatarURL()
+                                        ))
+                                        .collect(Collectors.toSet());
+                                    taskDto.setParticipants(taskParticipants);
+                                    
+                                    return taskDto;
+                                })
+                                .collect(Collectors.toSet());
+                            
+                            colDto.setTasks(tasks);
                             return colDto;
                         })
                         .collect(Collectors.toList());
