@@ -1,6 +1,8 @@
 package course.project.API.services;
 
 import course.project.API.dto.invitation.InvitationDTO;
+import course.project.API.dto.invitation.InvitationWithRecipientDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Invitation;
 import course.project.API.models.InvitationStatus;
 import course.project.API.models.Project;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional(readOnly = true)
 public class InvitationService {
     private static final Logger logger = LoggerFactory.getLogger(InvitationService.class);
 
@@ -50,12 +53,10 @@ public class InvitationService {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new IllegalArgumentException("Project not found"));
 
-        // Проверяем, не существует ли уже активное приглашение
         if (invitationRepository.existsByRecipientAndProjectAndStatus(recipient, project, InvitationStatus.PENDING)) {
             throw new IllegalStateException("Pending invitation already exists");
         }
 
-        // Проверяем, не является ли пользователь уже участником проекта
         if (project.getParticipants().contains(recipient)) {
             throw new IllegalStateException("User is already a project participant");
         }
@@ -63,7 +64,7 @@ public class InvitationService {
         Invitation invitation = new Invitation(sender, recipient, project);
         invitation = invitationRepository.save(invitation);
         
-        return convertToDTO(invitation);
+        return modelMapper.map(invitation, InvitationDTO.class);
     }
 
     @Transactional
@@ -79,18 +80,15 @@ public class InvitationService {
             throw new IllegalStateException("Invitation is not pending");
         }
 
-        // Добавляем пользователя в проект
         Project project = invitation.getProject();
         User user = invitation.getRecipient();
         project.addParticipant(user);
         projectRepository.save(project);
 
-        // Обновляем статус приглашения
         invitation.setStatus(InvitationStatus.ACCEPTED);
-        invitation.setUpdatedAt(LocalDateTime.now());
         invitation = invitationRepository.save(invitation);
 
-        return convertToDTO(invitation);
+        return modelMapper.map(invitation, InvitationDTO.class);
     }
 
     @Transactional
@@ -107,10 +105,9 @@ public class InvitationService {
         }
 
         invitation.setStatus(InvitationStatus.REJECTED);
-        invitation.setUpdatedAt(LocalDateTime.now());
         invitation = invitationRepository.save(invitation);
 
-        return convertToDTO(invitation);
+        return modelMapper.map(invitation, InvitationDTO.class);
     }
 
     public List<InvitationDTO> getUserInvitations(Long userId) {
@@ -118,7 +115,7 @@ public class InvitationService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         return invitationRepository.findByRecipient(user).stream()
-                .map(this::convertToDTO)
+                .map(invitation -> modelMapper.map(invitation, InvitationDTO.class))
                 .collect(Collectors.toList());
     }
 
@@ -127,18 +124,38 @@ public class InvitationService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         return invitationRepository.findByRecipientAndStatus(user, InvitationStatus.PENDING).stream()
-                .map(this::convertToDTO)
+                .map(invitation -> modelMapper.map(invitation, InvitationDTO.class))
                 .collect(Collectors.toList());
     }
 
-    private InvitationDTO convertToDTO(Invitation invitation) {
-        InvitationDTO dto = modelMapper.map(invitation, InvitationDTO.class);
-        dto.setSenderId(invitation.getSender().getId());
-        dto.setSenderUsername(invitation.getSender().getUsername());
-        dto.setRecipientId(invitation.getRecipient().getId());
-        dto.setRecipientUsername(invitation.getRecipient().getUsername());
-        dto.setProjectId(invitation.getProject().getId());
-        dto.setProjectTitle(invitation.getProject().getTitle());
-        return dto;
+    public List<InvitationWithRecipientDTO> getInvitationsForProject(Long projectId, Long userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new IllegalArgumentException("Project not found"));
+        
+        List<Invitation> invitations = invitationRepository.findByProject(project);
+        
+        return invitations.stream()
+                .map(invitation -> modelMapper.map(invitation, InvitationWithRecipientDTO.class))
+                .collect(Collectors.toList());
     }
+
+    @Transactional
+    public boolean cancelInvitation(Long invitationId) {
+        try {
+            Invitation invitation = invitationRepository.getReferenceById(invitationId);
+            
+            if (invitation.getStatus() != InvitationStatus.PENDING) {
+                logger.warn("Cannot cancel invitation with status {}", invitation.getStatus());
+                return false;
+            }
+            
+            invitationRepository.deleteById(invitationId);
+            logger.info("Invitation {} successfully cancelled", invitationId);
+            return true;
+        } catch (Exception e) {
+            logger.error("Error cancelling invitation: {}", e.getMessage());
+            return false;
+        }
+    }
+
 } 

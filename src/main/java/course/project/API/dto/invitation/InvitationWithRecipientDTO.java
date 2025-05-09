@@ -1,15 +1,29 @@
 package course.project.API.dto.invitation;
 
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.InvitationStatus;
+
 import java.time.LocalDateTime;
 
-public class InvitationDTO {
+public class InvitationWithRecipientDTO {
     private Long id;
     private Long senderId;
-    private Long recipientId;
+    private UserResponse recipient;
     private Long projectId;
     private InvitationStatus status;
     private LocalDateTime createdAt;
+
+    public InvitationWithRecipientDTO() {
+    }
+
+    public InvitationWithRecipientDTO(Long id, Long senderId, UserResponse recipient, Long projectId, InvitationStatus status, LocalDateTime createdAt) {
+        this.id = id;
+        this.senderId = senderId;
+        this.recipient = recipient;
+        this.projectId = projectId;
+        this.status = status;
+        this.createdAt = createdAt;
+    }
 
     public Long getId() {
         return id;
@@ -27,13 +41,12 @@ public class InvitationDTO {
         this.senderId = senderId;
     }
 
-
-    public Long getRecipientId() {
-        return recipientId;
+    public UserResponse getRecipient() {
+        return recipient;
     }
 
-    public void setRecipientId(Long recipientId) {
-        this.recipientId = recipientId;
+    public void setRecipient(UserResponse recipient) {
+        this.recipient = recipient;
     }
 
     public Long getProjectId() {
@@ -43,7 +56,6 @@ public class InvitationDTO {
     public void setProjectId(Long projectId) {
         this.projectId = projectId;
     }
-
 
     public InvitationStatus getStatus() {
         return status;
@@ -60,5 +72,4 @@ public class InvitationDTO {
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
-
 }

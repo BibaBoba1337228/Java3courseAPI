@@ -3,17 +3,17 @@ package course.project.API.dto.project;
 import course.project.API.dto.user.UserResponse;
 import java.util.Set;
 
-public class ProjectResponse {
+public class ProjectWithParticipantsOwnerDTO {
     private Long id;
     private String title;
     private String description;
     private Set<UserResponse> participants;
     private UserResponse owner;
 
-    public ProjectResponse() {
+    public ProjectWithParticipantsOwnerDTO() {
     }
 
-    public ProjectResponse(Long id, String title, String description, Set<UserResponse> participants, UserResponse owner) {
+    public ProjectWithParticipantsOwnerDTO(Long id, String title, String description, Set<UserResponse> participants, UserResponse owner) {
         this.id = id;
         this.title = title;
         this.description = description;

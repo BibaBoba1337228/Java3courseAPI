@@ -4,6 +4,7 @@ import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.board.BoardDTO;
 import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.dto.project.ProjectDTO;
+import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.models.BoardRight;
 import course.project.API.models.DashBoardColumn;
 import course.project.API.models.ProjectRight;
@@ -57,20 +58,9 @@ public class BoardController {
             @AuthenticationPrincipal User currentUser) {
         
         try {
-            if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-                return ResponseEntity.ok(boardService.getBoardsByProjectId(projectId));
-            }
+ 
             
-            Optional<ProjectDTO> projectOpt = projectService.getProjectById(projectId);
-            if (projectOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            ProjectDTO project = projectOpt.get();
-            boolean isParticipant = project.getParticipants() != null && 
-                                   project.getParticipants().contains(currentUser.getUsername());
-            
-            if (!isParticipant) {
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
                 return ResponseEntity.status(403).body(null);
             }
             
@@ -106,30 +96,24 @@ public class BoardController {
             if (boardOpt.isEmpty()) {
                 return ResponseEntity.status(404).body(new ErrorResponse("Board not found"));
             }
+            
             Long projectId = boardOpt.get().getProjectId();
             if (projectId == null) {
                 return ResponseEntity.status(400).body(new ErrorResponse("Project ID is null"));
             }
-            if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-                Optional<BoardWithColumnsDTO> details = boardService.getBoardWithDetails(boardId);
-                if (details.isPresent()) {
-                    return ResponseEntity.ok(details.get());
-                } else {
-                    return ResponseEntity.status(404).body(new ErrorResponse("Board not found"));
+            
+
+            
+            // Проверяем право доступа к проекту
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
+                return ResponseEntity.status(403).body(new ErrorResponse("Access denied: no project rights"));
             }
-            }
-            Optional<ProjectDTO> projectOpt = projectService.getProjectById(projectId);
-            if (projectOpt.isEmpty()) {
-                return ResponseEntity.status(404).body(new ErrorResponse("Project not found"));
-            }
-            ProjectDTO project = projectOpt.get();
-            boolean isProjectParticipant = project.getParticipants() != null && 
-                project.getParticipants().contains(currentUser.getUsername());
-            if (isProjectParticipant && !boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
+            
+            // Проверяем право доступа к доске
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
                 return ResponseEntity.status(403).body(new ErrorResponse("Access denied: no board rights"));
-            } else if (!isProjectParticipant) {
-                return ResponseEntity.status(403).body(new ErrorResponse("Access denied: not a project participant"));
             }
+            
             return ResponseEntity.ok(boardService.getBoardWithDetails(boardId));
         } catch (Exception e) {
             System.err.println("Error in getBoardById: " + e.getMessage());
@@ -142,12 +126,9 @@ public class BoardController {
             @RequestBody BoardDTO boardDTO,
             @AuthenticationPrincipal User currentUser) {
         
-        if (projectService.isProjectOwner(boardDTO.getProjectId(), currentUser.getId())) {
-            return boardService.createBoard(boardDTO)
-                    .map(board -> ResponseEntity.status(HttpStatus.CREATED).body(board))
-                    .orElse(ResponseEntity.badRequest().build());
-        }
+
         
+        // Проверяем право на создание досок в проекте
         if (!projectRightService.hasProjectRight(boardDTO.getProjectId(), currentUser.getId(), ProjectRight.CREATE_BOARDS)) {
             return ResponseEntity.status(403).body(null);
         }
@@ -179,24 +160,20 @@ public class BoardController {
                 boardDTO.getParticipantIds().removeIf(id -> id == null);
             }
         
-        Long projectId = boardService.getBoardById(boardId)
-                .map(BoardDTO::getProjectId)
-                .orElse(null);
-        
-        if (projectId == null) {
+            Long projectId = boardService.getBoardById(boardId)
+                    .map(BoardDTO::getProjectId)
+                    .orElse(null);
+            
+            if (projectId == null) {
                 return ResponseEntity.status(404).body(null);
-        }
-        
-        if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-                return boardService.updateBoard(boardId, boardDTO)
-                    .map(ResponseEntity::ok)
-                    .orElse(ResponseEntity.status(404).build());
-        }
-        
-        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.EDIT_BOARDS)) {
+            }
+
+            
+            // Проверяем право на редактирование досок в проекте
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.EDIT_BOARDS)) {
                 return ResponseEntity.status(403).body(null);
-        }
-        
+            }
+            
             return boardService.updateBoard(boardId, boardDTO)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.status(404).build());
@@ -219,12 +196,8 @@ public class BoardController {
         if (projectId == null) {
             return ResponseEntity.notFound().build();
         }
-        
-        if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-            boardService.deleteBoard(boardId);
-            return ResponseEntity.noContent().build();
-        }
-        
+
+        // Проверяем право на удаление досок в проекте
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.DELETE_BOARDS)) {
             return ResponseEntity.status(403).build();
         }
@@ -245,15 +218,6 @@ public class BoardController {
                 
         if (projectId == null) {
             return ResponseEntity.notFound().build();
-        }
-        
-        if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-            boolean added = boardService.addParticipant(boardId, userId);
-            if (added) {
-                return ResponseEntity.ok().build();
-            } else {
-                return ResponseEntity.notFound().build();
-            }
         }
         
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
@@ -282,15 +246,8 @@ public class BoardController {
             return ResponseEntity.notFound().build();
         }
         
-        if (projectService.isProjectOwner(projectId, currentUser.getId())) {
-            boolean removed = boardService.removeParticipant(boardId, userId);
-            if (removed) {
-                return ResponseEntity.ok().build();
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        }
         
+        // Проверяем право на управление участниками доски
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).build();
         }

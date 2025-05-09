@@ -1,7 +1,9 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.project.ProjectDTO;
-import course.project.API.dto.project.ProjectResponse;
+import course.project.API.dto.project.ProjectWithParticipantsOwnerDTO;
+import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.models.ProjectRight;
 import course.project.API.models.User;
 import course.project.API.repositories.UserRepository;
@@ -12,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.security.Principal;
 import java.util.HashMap;
@@ -22,6 +26,8 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/projects")
 public class ProjectController {
+    private static final Logger logger = LoggerFactory.getLogger(ProjectController.class);
+    
     private final ProjectService projectService;
     private final UserRepository userRepository;
     private final ProjectRightService projectRightService;
@@ -42,42 +48,38 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ProjectDTO> getProjectById(
+    public ResponseEntity<ProjectWithParticipantsOwnerInvitationsDTO> getProjectById(
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
-        
         try {
-            // Get project first
-            Optional<ProjectDTO> projectOpt = projectService.getProjectById(id);
+            logger.info("Getting project with ID: {}", id);
+            Optional<ProjectWithParticipantsOwnerInvitationsDTO> projectOpt = projectService.getProjectWithParticipantsOwnerInvitationsById(id);
             if (projectOpt.isEmpty()) {
+                logger.warn("Project not found for ID: {}", id);
                 return ResponseEntity.notFound().build();
             }
-            
-            ProjectDTO project = projectOpt.get();
-            
-            // If user is owner or participant, return the project
-            boolean isOwner = project.getOwnerId() != null && project.getOwnerId().equals(currentUser.getId());
-            boolean isParticipant = project.getParticipants() != null && 
-                                   project.getParticipants().contains(currentUser.getUsername());
-            
-            if (isOwner || isParticipant) {
-                return ResponseEntity.ok(project);
-            } 
-            
-            // If user is neither owner nor participant and doesn't have VIEW_PROJECT right
+
             if (!projectRightService.hasProjectRight(id, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
+                logger.warn("User {} doesn't have rights to view project: {}", currentUser.getUsername(), id);
                 return ResponseEntity.status(403).body(null);
             }
-            
+
+            ProjectWithParticipantsOwnerInvitationsDTO project = projectOpt.get();
+            if (!project.getInvitations().isEmpty()) {
+                logger.info("First participant is a “{}”", project.getInvitations().iterator().next().getClass().getName());
+            }
+            logger.info("Returning project DTO: {}, ID: {}", project.getClass().getName(), project.getId());
+
             return ResponseEntity.ok(project);
         } catch (Exception e) {
-            System.err.println("Error in getProjectById: " + e.getMessage());
+            logger.error("Error in getProjectWithUsersById: {}", e.getMessage(), e);
             return ResponseEntity.status(400).body(null);
         }
     }
 
+
     @GetMapping("/my")
-    public List<ProjectResponse> getMyProjects(Principal principal) {
+    public List<ProjectWithParticipantsOwnerDTO> getMyProjects(Principal principal) {
         var user = userRepository.findByUsername(principal.getName())
             .orElseThrow(() -> new RuntimeException("User not found"));
         return projectService.getMyProjectsWithUsers(user.getId());
@@ -94,14 +96,8 @@ public class ProjectController {
             @RequestBody ProjectDTO projectDTO,
             @AuthenticationPrincipal User currentUser) {
         
-        // Project owner can always update
-        if (projectService.isProjectOwner(id, currentUser.getId())) {
-            return projectService.updateProject(id, projectDTO)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-        }
+
         
-        // Check if user has EDIT_PROJECT right
         if (!projectRightService.hasProjectRight(id, currentUser.getId(), ProjectRight.EDIT_PROJECT)) {
             return ResponseEntity.status(403).body(null);
         }
@@ -115,8 +111,7 @@ public class ProjectController {
     public ResponseEntity<Void> deleteProject(
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
-        
-        // Only project owner can delete it
+
         if (!projectService.isProjectOwner(id, currentUser.getId())) {
             return ResponseEntity.status(403).body(null);
         }
@@ -135,13 +130,15 @@ public class ProjectController {
             return ResponseEntity.status(403).body("You don't have permission to add users to this project");
         }
         
-        return projectService.addParticipant(projectId, id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        if (projectService.addParticipant(projectId, id)) {
+            return ResponseEntity.ok().body(new SimpleDTO("Пользователь успешно добавлен"));
+        }
+        
+        return ResponseEntity.badRequest().build();
     }
 
     @DeleteMapping("/{projectId}/participants/{id}")
-    public ResponseEntity<ProjectDTO> removeParticipant(
+    public ResponseEntity<SimpleDTO> removeParticipant(
             @PathVariable Long projectId,
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
@@ -149,39 +146,14 @@ public class ProjectController {
         if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.MANAGE_MEMBERS)) {
             return ResponseEntity.status(403).body(null);
         }
-        
-        return projectService.removeParticipant(projectId, id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        if (projectService.removeParticipant(projectId, id)){
+            return ResponseEntity.ok().body(new SimpleDTO("Удаление прошло успешно"));
+        }
+
+        return ResponseEntity.badRequest().build();
     }
 
-    @GetMapping("/{projectId}/participants/check")
-    public ResponseEntity<Boolean> checkUserMembership(
-            @PathVariable Long projectId,
-            @AuthenticationPrincipal User currentUser) {
-        
-        try {
-            // Get project first
-            Optional<ProjectDTO> projectOpt = projectService.getProjectById(projectId);
-            if (projectOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            ProjectDTO project = projectOpt.get();
-            
-            // Check if user is owner or participant
-            boolean isOwner = project.getOwnerId() != null && project.getOwnerId().equals(currentUser.getId());
-            boolean isParticipant = project.getParticipants() != null && 
-                                   project.getParticipants().contains(currentUser.getUsername());
-            
-            boolean isMember = isOwner || isParticipant;
-            
-            return ResponseEntity.ok(isMember);
-        } catch (Exception e) {
-            System.err.println("Error in checkUserMembership: " + e.getMessage());
-            return ResponseEntity.status(400).body(false);
-        }
-    }
+
 
     @PostMapping("/{projectId}/boards/add-user/{userId}")
     public ResponseEntity<Map<String, Object>> addUserToAllProjectBoards(
