@@ -327,10 +327,19 @@ public class TaskService {
         return saveAndLogTask(task);
     }
 
+    @Transactional
     public Task saveAndLogTask(Task task) {
         Task savedTask = taskRepository.save(task);
         logger.info("Saved task with ID: {}", savedTask.getId());
-        return savedTask;
+        
+        // Force refresh the task from the database to ensure all collections are properly loaded
+        taskRepository.flush();
+        Task refreshedTask = taskRepository.findById(savedTask.getId())
+                .orElseThrow(() -> new RuntimeException("Task not found after saving: " + savedTask.getId()));
+        
+        logger.info("Task {} has {} participants after saving", refreshedTask.getId(), refreshedTask.getParticipants().size());
+        
+        return refreshedTask;
     }
 
     @Transactional

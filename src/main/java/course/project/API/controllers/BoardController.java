@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/boards")
@@ -126,12 +128,19 @@ public class BoardController {
             @RequestBody BoardDTO boardDTO,
             @AuthenticationPrincipal User currentUser) {
         
-
-        
         // Проверяем право на создание досок в проекте
         if (!projectRightService.hasProjectRight(boardDTO.getProjectId(), currentUser.getId(), ProjectRight.CREATE_BOARDS)) {
             return ResponseEntity.status(403).body(null);
         }
+        
+        // Ensure project owner is added to the board automatically
+        if (boardDTO.getParticipantIds() == null) {
+            boardDTO.setParticipantIds(new HashSet<>());
+        }
+        
+        // The board service already handles adding the project owner to the board
+        // We don't need to modify the participantIds here, as the BoardService.createBoard
+        // method ensures the project owner is added with all rights
         
         return boardService.createBoard(boardDTO)
                 .map(board -> ResponseEntity.status(HttpStatus.CREATED).body(board))

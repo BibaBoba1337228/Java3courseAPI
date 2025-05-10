@@ -3,6 +3,7 @@ package course.project.API.dto.board;
 import course.project.API.dto.user.UserResponse;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 public class TaskDTO {
@@ -15,6 +16,8 @@ public class TaskDTO {
     private Set<UserResponse> participants;
     private Integer position;
     private TagDTO tag;
+    private List<ChecklistItemDTO> checklist;
+    private List<AttachmentDTO> attachments;
     
     public TaskDTO() {
     }
@@ -89,5 +92,21 @@ public class TaskDTO {
 
     public void setTag(TagDTO tag) {
         this.tag = tag;
+    }
+
+    public List<ChecklistItemDTO> getChecklist() {
+        return checklist;
+    }
+    
+    public void setChecklist(List<ChecklistItemDTO> checklist) {
+        this.checklist = checklist;
+    }
+
+    public List<AttachmentDTO> getAttachments() {
+        return attachments;
+    }
+    
+    public void setAttachments(List<AttachmentDTO> attachments) {
+        this.attachments = attachments;
     }
 }

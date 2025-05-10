@@ -20,7 +20,7 @@ public class BoardUserRight {
     private User user;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "right_name", nullable = false)
+    @Column(name = "right_name", nullable = false, length = 30)
     private BoardRight right;
 
     public BoardUserRight() {

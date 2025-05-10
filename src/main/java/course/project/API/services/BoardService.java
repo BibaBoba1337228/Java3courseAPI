@@ -34,6 +34,8 @@ import course.project.API.dto.user.UserResponse;
 import course.project.API.dto.board.ColumnWithTasksDTO;
 import course.project.API.dto.board.TagDTO;
 import course.project.API.dto.board.TaskDTO;
+import course.project.API.dto.board.ChecklistItemDTO;
+import course.project.API.dto.board.AttachmentDTO;
 
 @Service
 public class BoardService {
@@ -87,6 +89,16 @@ public class BoardService {
                     // Создаем и настраиваем Board
                     Board board = new Board(boardDTO.getTitle(), boardDTO.getDescription(), project);
                     
+                    // Always add project owner to board with all rights
+                    User projectOwner = project.getOwner();
+                    if (projectOwner != null) {
+                        board.addParticipant(projectOwner);
+                        // Grant all rights to the project owner
+                        for (BoardRight right : BoardRight.values()) {
+                            board.addUserRight(projectOwner, right);
+                        }
+                    }
+                    
                     // Only add specified participants, not all project participants
                     if (boardDTO.getParticipantIds() != null) {
                         Set<User> participants = new HashSet<>();
@@ -105,13 +117,11 @@ public class BoardService {
                                 }
                             });
                         }
-                        board.setParticipants(participants);
-                    } else {
-                        // If no participants specified, only add project owner
-                        board.addParticipant(project.getOwner());
-                        // Grant all rights to the project owner
-                        for (BoardRight right : BoardRight.values()) {
-                            board.addUserRight(project.getOwner(), right);
+                        // We don't overwrite the participants to ensure the owner is always included
+                        for (User participant : participants) {
+                            if (!board.getParticipants().contains(participant)) {
+                                board.addParticipant(participant);
+                            }
                         }
                     }
 
@@ -194,22 +204,42 @@ public class BoardService {
             }
             
             // Обновляем основные поля
-                    board.setTitle(boardDTO.getTitle());
-                    board.setDescription(boardDTO.getDescription());
+            board.setTitle(boardDTO.getTitle());
+            board.setDescription(boardDTO.getDescription());
+            
+            // Ensure project owner has all rights
+            if (board.getProject() != null && board.getProject().getOwner() != null) {
+                User projectOwner = board.getProject().getOwner();
+                // Add project owner if not already present
+                if (!board.getParticipants().contains(projectOwner)) {
+                    board.addParticipant(projectOwner);
+                }
+                // Grant all rights to project owner
+                for (BoardRight right : BoardRight.values()) {
+                    if (!board.hasRight(projectOwner, right)) {
+                        board.addUserRight(projectOwner, right);
+                    }
+                }
+            }
             
             // Обновляем участников, сохраняя существующие
-                    if (boardDTO.getParticipantIds() != null) {
-                // Создаем новый список участников
-                Set<User> updatedParticipants = new HashSet<>(board.getParticipants());
+            if (boardDTO.getParticipantIds() != null) {
+                // Создаем новый список участников, сохраняя владельца проекта
+                Set<User> updatedParticipants = new HashSet<>();
+                
+                // Ensure project owner is in the participants list
+                if (board.getProject() != null && board.getProject().getOwner() != null) {
+                    updatedParticipants.add(board.getProject().getOwner());
+                }
                 
                 // Добавляем новых участников из запроса
-                        for (Long userId : boardDTO.getParticipantIds()) {
+                for (Long userId : boardDTO.getParticipantIds()) {
                     if (userId != null) {
                         Optional<User> userOpt = userRepository.findById(userId);
                         if (userOpt.isPresent()) {
                             User user = userOpt.get();
-                            if (!updatedParticipants.contains(user)) {
-                                updatedParticipants.add(user);
+                            updatedParticipants.add(user);
+                            if (!board.hasRight(user, BoardRight.VIEW_BOARD)) {
                                 // Добавляем право просмотра новому участнику
                                 board.addUserRight(user, BoardRight.VIEW_BOARD);
                             }
@@ -217,18 +247,12 @@ public class BoardService {
                     }
                 }
                 
-                // Если включен владелец проекта, добавляем его в список
-                if (board.getProject() != null && board.getProject().getOwner() != null) {
-                    User projectOwner = board.getProject().getOwner();
-                    updatedParticipants.add(projectOwner);
-                    }
-                    
                 // Обновляем список участников
                 board.setParticipants(updatedParticipants);
             }
             
             // Обновляем существующие теги или добавляем новые
-                    if (boardDTO.getTags() != null) {
+            if (boardDTO.getTags() != null) {
                 // Удаляем все существующие теги доски
                 List<Tag> existingTags = new ArrayList<>(board.getTags());
                 for (Tag tag : existingTags) {
@@ -237,12 +261,12 @@ public class BoardService {
                 }
                 
                 // Добавляем новые теги из запроса
-                        for (TagDTO tagDTO : boardDTO.getTags()) {
-                                Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
-                                board.addTag(tag);
+                for (TagDTO tagDTO : boardDTO.getTags()) {
+                    Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
+                    board.addTag(tag);
                     tagRepository.save(tag);
-                        }
-                    }
+                }
+            }
                     
             // Сохраняем изменения доски
             Board savedBoard = boardRepository.save(board);
@@ -363,13 +387,43 @@ public class BoardService {
                                     
                                     // Добавляем участников задачи
                                     Set<UserResponse> taskParticipants = task.getParticipants().stream()
-                                        .map(user -> new UserResponse(
-                                            user.getId(),
-                                            user.getName(),
-                                            user.getAvatarURL()
+                                        .map(participant -> new UserResponse(
+                                            participant.getId(),
+                                            participant.getName(),
+                                            participant.getAvatarURL()
                                         ))
                                         .collect(Collectors.toSet());
                                     taskDto.setParticipants(taskParticipants);
+
+                                    // Convert checklist items to ChecklistItemDTO
+                                    List<ChecklistItemDTO> checklistItems = task.getChecklist().stream()
+                                        .map(item -> new ChecklistItemDTO(
+                                            item.getId(),
+                                            item.getText(),
+                                            item.isCompleted(),
+                                            item.getPosition()
+                                        ))
+                                        .collect(Collectors.toList());
+                                    taskDto.setChecklist(checklistItems);
+                                    
+                                    // Convert attachments to AttachmentDTO
+                                    List<AttachmentDTO> attachmentDTOs = task.getAttachments().stream()
+                                        .map(attachment -> {
+                                            AttachmentDTO attachmentDto = new AttachmentDTO(
+                                                attachment.getId(),
+                                                attachment.getFileName(),
+                                                null, // Don't expose file path to client
+                                                attachment.getFileType(),
+                                                attachment.getFileSize(),
+                                                attachment.getUploadedBy(),
+                                                attachment.getUploadedAt()
+                                            );
+                                            // Set download URL
+                                            attachmentDto.setDownloadUrl("http://localhost:8080/api/attachments/" + attachment.getId() + "/download");
+                                            return attachmentDto;
+                                        })
+                                        .collect(Collectors.toList());
+                                    taskDto.setAttachments(attachmentDTOs);
                                     
                                     return taskDto;
                                 })
