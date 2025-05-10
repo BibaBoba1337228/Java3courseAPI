@@ -822,4 +822,111 @@ public class BoardService {
                 })
                 .orElse(false);
     }
+
+    /**
+     * Получает все задачи пользователя с досок, на которых он состоит, по ID проекта
+     *
+     * @param projectId ID проекта
+     * @param userId ID пользователя
+     * @return список задач пользователя в указанном проекте
+     */
+    @Transactional(readOnly = true)
+    public List<TaskDTO> getUserTasksByProjectId(Long projectId, Long userId) {
+        try {
+            // Получаем пользователя и проект
+            User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с ID: " + userId));
+            
+            Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new NoSuchElementException("Проект не найден с ID: " + projectId));
+            
+            // Проверяем, что пользователь имеет доступ к проекту
+            boolean isProjectMember = project.getParticipants().contains(user) || 
+                                    project.getOwner().equals(user);
+            if (!isProjectMember) {
+                throw new IllegalArgumentException("Пользователь не является участником проекта");
+            }
+            
+            // Получаем все доски проекта
+            List<Board> allBoards = boardRepository.findByProjectId(projectId);
+            
+            // Фильтруем доски, где пользователь является участником
+            List<Board> userBoards = allBoards.stream()
+                .filter(board -> board.getParticipants().contains(user) || 
+                               project.getOwner().equals(user))
+                .collect(Collectors.toList());
+            
+            // Собираем все задачи с этих досок
+            List<TaskDTO> tasks = new ArrayList<>();
+            
+            for (Board board : userBoards) {
+                // Получаем все колонки доски
+                for (DashBoardColumn column : board.getColumns()) {
+                    // Преобразуем задачи в DTO и добавляем к результату
+                    column.getTasks().forEach(task -> {
+                        TaskDTO taskDto = new TaskDTO();
+                        taskDto.setId(task.getId());
+                        taskDto.setTitle(task.getTitle());
+                        taskDto.setDescription(task.getDescription());
+                        taskDto.setColumnId(column.getId());
+                        taskDto.setPosition(task.getPosition());
+                        
+                        // Добавляем информацию о доске
+                        taskDto.setBoardId(board.getId());
+                        taskDto.setBoardTitle(board.getTitle());
+                        
+                        // Добавляем колонку
+                        taskDto.setColumnName(column.getName());
+                        
+                        // Добавляем даты, если они есть
+                        if (task.getStartDate() != null) {
+                            taskDto.setStartDate(task.getStartDate());
+                        }
+                        if (task.getEndDate() != null) {
+                            taskDto.setEndDate(task.getEndDate());
+                        }
+                        
+                        // Добавляем тег, если он есть
+                        if (task.getTag() != null) {
+                            TagDTO tagDto = new TagDTO(
+                                task.getTag().getId(),
+                                task.getTag().getName(),
+                                task.getTag().getColor(),
+                                board.getId()
+                            );
+                            taskDto.setTag(tagDto);
+                        }
+                        
+                        // Добавляем участников задачи
+                        Set<UserResponse> taskParticipants = task.getParticipants().stream()
+                            .map(participant -> new UserResponse(
+                                participant.getId(),
+                                participant.getName(),
+                                participant.getAvatarURL()
+                            ))
+                            .collect(Collectors.toSet());
+                        taskDto.setParticipants(taskParticipants);
+
+                        // Convert checklist items to ChecklistItemDTO
+                        List<ChecklistItemDTO> checklistItems = task.getChecklist().stream()
+                            .map(item -> new ChecklistItemDTO(
+                                item.getId(),
+                                item.getText(),
+                                item.isCompleted(),
+                                item.getPosition()
+                            ))
+                            .collect(Collectors.toList());
+                        taskDto.setChecklist(checklistItems);
+                        
+                        tasks.add(taskDto);
+                    });
+                }
+            }
+            
+            return tasks;
+        } catch (Exception e) {
+            logger.error("Ошибка при получении задач пользователя по проекту: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
 } 

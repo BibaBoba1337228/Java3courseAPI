@@ -11,6 +11,9 @@ public class TaskDTO {
     private String title;
     private String description;
     private Long columnId;
+    private String columnName;
+    private Long boardId;
+    private String boardTitle;
     private LocalDateTime startDate;
     private LocalDateTime endDate;
     private Set<UserResponse> participants;
@@ -52,6 +55,30 @@ public class TaskDTO {
     
     public void setColumnId(Long columnId) {
         this.columnId = columnId;
+    }
+    
+    public String getColumnName() {
+        return columnName;
+    }
+    
+    public void setColumnName(String columnName) {
+        this.columnName = columnName;
+    }
+    
+    public Long getBoardId() {
+        return boardId;
+    }
+    
+    public void setBoardId(Long boardId) {
+        this.boardId = boardId;
+    }
+    
+    public String getBoardTitle() {
+        return boardTitle;
+    }
+    
+    public void setBoardTitle(String boardTitle) {
+        this.boardTitle = boardTitle;
     }
     
     public LocalDateTime getStartDate() {

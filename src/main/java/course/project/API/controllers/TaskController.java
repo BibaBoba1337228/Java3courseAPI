@@ -42,6 +42,9 @@ public class TaskController {
     private final BoardRightService boardRightService;
     private final WebSocketService webSocketService;
     private final String baseUrl;
+    private final BoardService boardService;
+    private final ProjectService projectService;
+    private final ProjectRightService projectRightService;
 
     @Autowired
     public TaskController(TaskService taskService, UserRepository userRepository, 
@@ -50,7 +53,10 @@ public class TaskController {
                           TagService tagService,
                           AttachmentRepository attachmentRepository,
                           BoardRightService boardRightService,
-                          WebSocketService webSocketService) {
+                          WebSocketService webSocketService,
+                          BoardService boardService,
+                          ProjectService projectService,
+                          ProjectRightService projectRightService) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
@@ -60,6 +66,9 @@ public class TaskController {
         this.boardRightService = boardRightService;
         this.webSocketService = webSocketService;
         this.baseUrl = "http://localhost:8080"; // Базовый URL для скачивания файлов
+        this.boardService = boardService;
+        this.projectService = projectService;
+        this.projectRightService = projectRightService;
     }
 
     // Helper method to convert Task to TaskDTO with all needed relations
@@ -823,5 +832,35 @@ public class TaskController {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         
         return ResponseEntity.ok(taskService.getUserTasksById(user.getId()));
+    }
+
+    /**
+     * Получить все задачи пользователя в проекте
+     * 
+     * @param projectId ID проекта
+     * @param currentUser текущий пользователь
+     * @return список всех задач пользователя в проекте
+     */
+    @GetMapping("/project/{projectId}")
+    public ResponseEntity<?> getUserTasksByProject(
+            @PathVariable Long projectId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        try {
+            // Проверяем, что пользователь имеет доступ к проекту
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "У вас нет доступа к этому проекту");
+                return ResponseEntity.status(403).body(error);
+            }
+            
+            List<TaskDTO> tasks = boardService.getUserTasksByProjectId(projectId, currentUser.getId());
+            return ResponseEntity.ok(tasks);
+            
+        } catch (Exception e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
     }
 } 

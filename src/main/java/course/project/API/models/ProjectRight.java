@@ -12,5 +12,6 @@ public enum ProjectRight {
     MANAGE_ACCESS,    // Permission to edit user access to boards (shorter name)
     VIEW_PROJECT,     // Basic permission to view the project
     EDIT_PROJECT,     // Permission to edit project details
-    ACCESS_ALL_BOARDS // Marker for users who should have access to all boards automatically
+    ACCESS_ALL_BOARDS,// Marker for users who should have access to all boards automatically
+    MANAGE_BOARD_RIGHTS // Permission to edit user rights on board level
 } 
