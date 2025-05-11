@@ -1,5 +1,6 @@
 package course.project.API.config;
 
+import course.project.API.dto.invitation.InvitationDTO;
 import course.project.API.dto.invitation.InvitationWithRecipientDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.dto.user.UserResponse;
@@ -41,6 +42,33 @@ public class AppConfig {
         modelMapper.addConverter(new PersistentBagToSetConverter<>());
         
         modelMapper.createTypeMap(User.class, UserResponse.class);
+        
+        // Конвертер для InvitationDTO
+        Converter<Invitation, InvitationDTO> simpleInvitationConverter = ctx -> {
+            Invitation source = ctx.getSource();
+            InvitationDTO destination = new InvitationDTO();
+            
+            destination.setId(source.getId());
+            destination.setSenderId(source.getSender() != null ? source.getSender().getId() : null);
+            destination.setRecipientId(source.getRecipient() != null ? source.getRecipient().getId() : null);
+            destination.setProjectId(source.getProject() != null ? source.getProject().getId() : null);
+            destination.setStatus(source.getStatus());
+            destination.setCreatedAt(source.getCreatedAt());
+            
+            // Adding sender name and project title
+            if (source.getSender() != null) {
+                destination.setSenderName(source.getSender().getUsername());
+            }
+            
+            if (source.getProject() != null) {
+                destination.setProjectTitle(source.getProject().getTitle());
+            }
+            
+            return destination;
+        };
+        
+        modelMapper.createTypeMap(Invitation.class, InvitationDTO.class)
+            .setConverter(simpleInvitationConverter);
         
         Converter<Invitation, InvitationWithRecipientDTO> invitationConverter = ctx -> {
             Invitation source = ctx.getSource();

@@ -323,4 +323,56 @@ public class ProjectRightService {
             throw e;
         }
     }
+
+    /**
+     * Получает права пользователя на всех его проектах в виде Map, где ключ - ID проекта,
+     * а значение - список прав пользователя на этом проекте
+     * 
+     * @param userId ID пользователя
+     * @return Map с правами пользователя на всех проектах
+     */
+    public java.util.Map<Long, Set<ProjectRight>> getUserRightsForAllProjects(Long userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+        
+        // Получаем все права пользователя
+        List<ProjectUserRight> allUserRights = projectUserRightRepository.findByUser(user);
+        
+        // Получаем все проекты, где пользователь является участником
+        List<Project> userProjects = projectRepository.findByParticipantsContains(user);
+        
+        // Добавляем проекты, где пользователь является владельцем (если они не в списке участников)
+        List<Project> ownedProjects = projectRepository.findByOwner(user);
+        for (Project ownedProject : ownedProjects) {
+            if (!userProjects.contains(ownedProject)) {
+                userProjects.add(ownedProject);
+            }
+        }
+        
+        // Создаем результирующую Map
+        java.util.Map<Long, Set<ProjectRight>> result = new java.util.HashMap<>();
+        
+        // Для каждого проекта добавляем права пользователя
+        for (Project project : userProjects) {
+            // Если пользователь является владельцем, даем все права
+            if (project.getOwner() != null && project.getOwner().equals(user)) {
+                result.put(project.getId(), new HashSet<>(Arrays.asList(ProjectRight.values())));
+            } else {
+                // Иначе получаем список явно выданных прав
+                Set<ProjectRight> projectRights = allUserRights.stream()
+                    .filter(right -> right.getProject().getId().equals(project.getId()))
+                    .map(ProjectUserRight::getRight)
+                    .collect(Collectors.toSet());
+                
+                // Участник проекта всегда имеет VIEW_PROJECT право
+                if (project.getParticipants().contains(user)) {
+                    projectRights.add(ProjectRight.VIEW_PROJECT);
+                }
+                
+                result.put(project.getId(), projectRights);
+            }
+        }
+        
+        return result;
+    }
 } 

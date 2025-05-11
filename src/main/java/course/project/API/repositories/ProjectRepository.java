@@ -1,6 +1,7 @@
 package course.project.API.repositories;
 
 import course.project.API.models.Project;
+import course.project.API.models.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
@@ -18,4 +19,8 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     
     @EntityGraph(attributePaths = {"participants", "owner"})
     Optional<Project> findProjectWithParticipantsOwnerById(Long id);
+
+    List<Project> findByParticipantsContains(User user);
+    
+    List<Project> findByOwner(User owner);
 }

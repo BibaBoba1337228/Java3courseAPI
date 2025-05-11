@@ -1,5 +1,6 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.ProjectRightsDTO;
 import course.project.API.dto.RightDto;
 import course.project.API.models.ProjectRight;
 import course.project.API.services.ProjectRightService;
@@ -13,7 +14,6 @@ import course.project.API.repositories.ProjectRepository;
 import java.util.Set;
 
 @RestController
-@RequestMapping("/api/projects/{projectId}/rights")
 public class ProjectRightController {
 
     private final ProjectRightService projectRightService;
@@ -24,8 +24,26 @@ public class ProjectRightController {
         this.projectRightService = projectRightService;
         this.projectRepository = projectRepository;
     }
+    
+    /**
+     * Получает все права пользователя на всех проектах одним запросом
+     */
+    @GetMapping("/api/user-project-rights/{userId}")
+    public ResponseEntity<ProjectRightsDTO> getUserRightsForAllProjects(
+            @PathVariable Long userId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        // Разрешаем только запрашивать свои собственные права
+        if (!currentUser.getId().equals(userId)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        
+        var rights = projectRightService.getUserRightsForAllProjects(userId);
+        ProjectRightsDTO result = new ProjectRightsDTO(rights);
+        return ResponseEntity.ok(result);
+    }
 
-    @PostMapping("/users")
+    @PostMapping("/api/projects/{projectId}/rights/users")
     public ResponseEntity<?> addUserToProject(
             @PathVariable Long projectId,
             @RequestBody Long userId,
@@ -40,7 +58,7 @@ public class ProjectRightController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/users/{userId}")
+    @GetMapping("/api/projects/{projectId}/rights/users/{userId}")
     public ResponseEntity<Set<ProjectRight>> getUserRights(
             @PathVariable Long projectId,
             @PathVariable Long userId,
@@ -56,7 +74,7 @@ public class ProjectRightController {
         return ResponseEntity.ok(rights);
     }
     
-    @GetMapping("/users/username/{username}")
+    @GetMapping("/api/projects/{projectId}/rights/users/username/{username}")
     public ResponseEntity<Set<ProjectRight>> getUserRightsByUsername(
             @PathVariable Long projectId,
             @PathVariable String username,
@@ -72,7 +90,7 @@ public class ProjectRightController {
         return ResponseEntity.ok(rights);
     }
 
-    @PostMapping("/grant")
+    @PostMapping("/api/projects/{projectId}/rights/grant")
     public ResponseEntity<?> grantRight(
             @PathVariable Long projectId,
             @RequestBody RightDto rightDto,
@@ -140,7 +158,7 @@ public class ProjectRightController {
         }
     }
 
-    @PostMapping("/revoke")
+    @PostMapping("/api/projects/{projectId}/rights/revoke")
     public ResponseEntity<?> revokeRight(
             @PathVariable Long projectId,
             @RequestBody RightDto rightDto,
@@ -208,7 +226,7 @@ public class ProjectRightController {
         }
     }
 
-    @DeleteMapping("/users/{userId}")
+    @DeleteMapping("/api/projects/{projectId}/rights/users/{userId}")
     public ResponseEntity<?> removeUserFromProject(
             @PathVariable Long projectId,
             @PathVariable Long userId,

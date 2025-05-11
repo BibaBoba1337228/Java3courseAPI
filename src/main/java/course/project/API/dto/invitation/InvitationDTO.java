@@ -10,6 +10,8 @@ public class InvitationDTO {
     private Long projectId;
     private InvitationStatus status;
     private LocalDateTime createdAt;
+    private String senderName;
+    private String projectTitle;
 
     public Long getId() {
         return id;
@@ -61,4 +63,19 @@ public class InvitationDTO {
         this.createdAt = createdAt;
     }
 
+    public String getSenderName() {
+        return senderName;
+    }
+
+    public void setSenderName(String senderName) {
+        this.senderName = senderName;
+    }
+
+    public String getProjectTitle() {
+        return projectTitle;
+    }
+
+    public void setProjectTitle(String projectTitle) {
+        this.projectTitle = projectTitle;
+    }
 }
