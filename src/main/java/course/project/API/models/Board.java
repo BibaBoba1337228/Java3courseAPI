@@ -159,10 +159,23 @@ public class Board {
     public boolean hasRight(User user, BoardRight right) {
         // Check if project owner
         if (project.getOwner().equals(user)) {
+            System.out.println("hasRight: User is project owner, granting all rights");
             return true; // Project owner has all rights
         }
         
-        return userRights.stream()
+        boolean result = userRights.stream()
                 .anyMatch(r -> r.getUser().equals(user) && r.getRight() == right);
+        
+        System.out.println("hasRight check for user " + user.getUsername() + " and right " + right + ": " + result);
+        
+        if (!result) {
+            // Debug: print all rights this user has
+            System.out.println("User rights on this board:");
+            userRights.stream()
+                .filter(r -> r.getUser().equals(user))
+                .forEach(r -> System.out.println("- " + r.getRight()));
+        }
+        
+        return result;
     }
 } 

@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class TaskService {
@@ -329,17 +330,33 @@ public class TaskService {
 
     @Transactional
     public Task saveAndLogTask(Task task) {
-        Task savedTask = taskRepository.save(task);
-        logger.info("Saved task with ID: {}", savedTask.getId());
+        logger.info("Saving task (ID: {}), participants count: {}", 
+            task.getId(), task.getParticipants().size());
         
-        // Force refresh the task from the database to ensure all collections are properly loaded
-        taskRepository.flush();
-        Task refreshedTask = taskRepository.findById(savedTask.getId())
-                .orElseThrow(() -> new RuntimeException("Task not found after saving: " + savedTask.getId()));
-        
-        logger.info("Task {} has {} participants after saving", refreshedTask.getId(), refreshedTask.getParticipants().size());
-        
-        return refreshedTask;
+        try {
+            Task savedTask = taskRepository.save(task);
+            logger.info("Saved task with ID: {}", savedTask.getId());
+            
+            // Force refresh the task from the database to ensure all collections are properly loaded
+            taskRepository.flush();
+            Task refreshedTask = taskRepository.findById(savedTask.getId())
+                    .orElseThrow(() -> new RuntimeException("Task not found after saving: " + savedTask.getId()));
+            
+            // Log participant IDs for debugging
+            Set<User> participants = refreshedTask.getParticipants();
+            if (participants != null && !participants.isEmpty()) {
+                logger.info("Task {} has {} participants after saving: {}", 
+                    refreshedTask.getId(), participants.size(),
+                    participants.stream().map(user -> user.getId().toString()).collect(Collectors.joining(", ")));
+            } else {
+                logger.info("Task {} has no participants after saving", refreshedTask.getId());
+            }
+            
+            return refreshedTask;
+        } catch (Exception e) {
+            logger.error("Error saving task: {}", e.getMessage(), e);
+            throw e;
+        }
     }
 
     @Transactional
@@ -426,8 +443,34 @@ public class TaskService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
         
+        logger.info("Adding participant with ID {} to task {}", userId, taskId);
+        boolean participantAlreadyExists = task.getParticipants().contains(user);
+        logger.info("Participant already exists in task: {}", participantAlreadyExists);
+        
+        int participantsBefore = task.getParticipants().size();
         task.addParticipant(user);
-        return taskRepository.save(task);
+        
+        Task savedTask = taskRepository.save(task);
+        
+        // Force refresh the entity to verify changes
+        taskRepository.flush();
+        Task refreshedTask = taskRepository.findById(savedTask.getId()).orElse(null);
+        
+        if (refreshedTask != null) {
+            int participantsAfter = refreshedTask.getParticipants().size();
+            boolean exists = refreshedTask.getParticipants().contains(user);
+            
+            logger.info("After addition - participants count: {} (before: {}), user exists: {}", 
+                participantsAfter, participantsBefore, exists);
+            
+            if (!exists) {
+                logger.warn("Failed to add participant {} to task {}!", userId, taskId);
+            }
+            
+            return refreshedTask;
+        }
+        
+        return savedTask;
     }
 
     @Transactional
@@ -438,8 +481,38 @@ public class TaskService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
         
-        task.removeParticipant(user);
-        return taskRepository.save(task);
+        logger.info("Removing participant with ID {} from task {}", userId, taskId);
+        boolean participantExists = task.getParticipants().contains(user);
+        logger.info("Participant exists in task: {}", participantExists);
+        
+        if (participantExists) {
+            int participantsBefore = task.getParticipants().size();
+            task.removeParticipant(user);
+            
+            Task savedTask = taskRepository.save(task);
+            
+            // Force refresh the entity to verify changes
+            taskRepository.flush();
+            Task refreshedTask = taskRepository.findById(savedTask.getId()).orElse(null);
+            
+            if (refreshedTask != null) {
+                int participantsAfter = refreshedTask.getParticipants().size();
+                boolean stillExists = refreshedTask.getParticipants().contains(user);
+                
+                logger.info("After removal - participants count: {} (before: {}), user still exists: {}", 
+                    participantsAfter, participantsBefore, stillExists);
+                
+                if (stillExists) {
+                    logger.warn("Failed to remove participant {} from task {}!", userId, taskId);
+                }
+                
+                return refreshedTask;
+            }
+        } else {
+            logger.info("Participant {} was not found in task {}, no removal needed", userId, taskId);
+        }
+        
+        return task;
     }
 
     @Transactional(readOnly = true)

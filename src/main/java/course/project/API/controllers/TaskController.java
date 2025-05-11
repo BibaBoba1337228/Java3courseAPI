@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.stream.Collectors;
+import java.util.HashSet;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -389,114 +390,245 @@ public class TaskController {
     }
 
     @PutMapping("/{taskId}")
-    @Transactional
     public ResponseEntity<TaskDTO> updateTask(
             @PathVariable Long taskId,
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get the task to check permissions
-        Task task = taskService.getTaskById(taskId).orElse(null);
-        if (task == null) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        Long boardId = task.getColumn().getBoard().getId();
-        
-        // Check if user has EDIT_TASKS right on the board
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
-            return ResponseEntity.status(403).body(null);
-        }
-        
-        logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
-        
-        String title = payload.containsKey("title") ? safeStringValue(payload.get("title")) : null;
-        String description = payload.containsKey("description") ? safeStringValue(payload.get("description")) : null;
-        Integer position = payload.containsKey("position") ? safeParseInteger(payload.get("position")) : null;
-        Long columnId = payload.containsKey("columnId") ? safeParseLong(payload.get("columnId")) : null;
-        String startDate = payload.containsKey("startDate") ? safeStringValue(payload.get("startDate")) : null;
-        String endDate = payload.containsKey("endDate") ? safeStringValue(payload.get("endDate")) : null;
-
-        // Check if moving to a different column
-        if (columnId != null && !columnId.equals(task.getColumn().getId())) {
-            // Check if user has MOVE_TASKS right
-            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+        try {
+            // Get the task to check permissions
+            Task task = taskService.getTaskById(taskId).orElse(null);
+            if (task == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Long boardId = task.getColumn().getBoard().getId();
+            
+            // Check if user has EDIT_TASKS right on the board
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
                 return ResponseEntity.status(403).body(null);
             }
-        }
-        
-        String tagName = payload.containsKey("tags") ? safeStringValue(payload.get("tags")) : null;
-        Long boardIdFromPayload = null;
-        if (payload.containsKey("boardId")) {
-            boardIdFromPayload = safeParseLong(payload.get("boardId"));
-        } else if (payload.containsKey("projectId")) {
-            boardIdFromPayload = safeParseLong(payload.get("projectId"));
-        }
-        
-        Task updatedTask;
-        if (payload.containsKey("tagId")) {
-            Long tagId = safeParseLong(payload.get("tagId"));
-            logger.info("Updating task with tag ID: {}", tagId);
-            updatedTask = taskService.updateTaskWithTagId(
-                taskId, title, description, position, columnId, tagId, startDate, endDate);
-        } else {
-            logger.info("Updating tag with name: {}, boardId: {}", tagName, boardIdFromPayload);
-            updatedTask = taskService.updateTask(
-                taskId, title, description, position, columnId, tagName, startDate, endDate, boardIdFromPayload);
-        }
+            
+            logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
+            
+            // Обновляем базовую информацию о задаче
+            Task updatedTask = updateTaskBasicInfo(taskId, payload, boardId, currentUser);
+            if (updatedTask == null) {
+                return ResponseEntity.badRequest().body(null);
+            }
+            
+            // Обновляем участников задачи
+            try {
+                updateTaskParticipants(taskId, payload, currentUser);
+            } catch (Exception e) {
+                logger.error("Error updating task participants: {}", e.getMessage(), e);
+                // Не прерываем выполнение, продолжаем с другими обновлениями
+            }
+            
+            // Обновляем чеклист
+            try {
+                updateTaskChecklist(taskId, payload);
+            } catch (Exception e) {
+                logger.error("Error updating task checklist: {}", e.getMessage(), e);
+                // Не прерываем выполнение, продолжаем с другими обновлениями
+            }
+            
+            // Перезагружаем задачу, чтобы получить полные данные
+            Task finalTask = taskService.getTaskById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found after updating: " + taskId));
 
-        // Update participants if present
-        if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
-            List<Object> participants = (List<Object>) payload.get("participants");
-            logger.info("Processing participants update: {}", participants);
+            // Convert to TaskDTO using helper method
+            TaskDTO taskDTO = convertToTaskDTO(finalTask, boardId);
             
-            // Get current participants
-            Set<User> currentParticipants = taskService.getTaskParticipants(taskId);
-            List<Long> newParticipantIds = new ArrayList<>();
-            List<String> newParticipantUsernames = new ArrayList<>();
+            // Add WebSocket notification - используем аналогичный подход как при создании задачи
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("id", taskDTO.getId());
+            notificationPayload.put("title", taskDTO.getTitle());
+            notificationPayload.put("description", taskDTO.getDescription());
+            notificationPayload.put("columnId", taskDTO.getColumnId());
+            notificationPayload.put("startDate", taskDTO.getStartDate());
+            notificationPayload.put("endDate", taskDTO.getEndDate());
+            notificationPayload.put("position", taskDTO.getPosition());
+            notificationPayload.put("participants", taskDTO.getParticipants());
+            notificationPayload.put("tag", taskDTO.getTag());
+            notificationPayload.put("checklist", taskDTO.getChecklist());
+            notificationPayload.put("attachments", taskDTO.getAttachments());
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
             
-            // Process new participants list
-            for (Object participant : participants) {
-                if (participant instanceof Number) {
-                    // If participant is a number (ID)
-                    Long userId = ((Number) participant).longValue();
-                    newParticipantIds.add(userId);
-                    userRepository.findById(userId).ifPresent(user -> {
-                        if (!currentParticipants.contains(user)) {
+            // Добавляем дополнительные поля из оригинального payload, которые могут понадобиться клиенту
+            if (payload.containsKey("deletedChecklistItems")) {
+                notificationPayload.put("deletedChecklistItems", payload.get("deletedChecklistItems"));
+            }
+            
+            webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
+            
+            return ResponseEntity.ok(taskDTO);
+        } catch (Exception e) {
+            logger.error("Unexpected error in updateTask: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getMessage());
+            TaskDTO errorDTO = new TaskDTO();
+            errorDTO.setId(taskId);
+            errorDTO.setTitle("Error updating task: " + e.getMessage());
+            return ResponseEntity.status(500).body(errorDTO);
+        }
+    }
+    
+    /**
+     * Обновляет основную информацию о задаче (название, описание, позиция, колонка, метка, даты)
+     */
+    @Transactional
+    private Task updateTaskBasicInfo(Long taskId, Map<String, Object> payload, Long boardId, User currentUser) {
+        try {
+            String title = payload.containsKey("title") ? safeStringValue(payload.get("title")) : null;
+            String description = payload.containsKey("description") ? safeStringValue(payload.get("description")) : null;
+            Integer position = payload.containsKey("position") ? safeParseInteger(payload.get("position")) : null;
+            Long columnId = payload.containsKey("columnId") ? safeParseLong(payload.get("columnId")) : null;
+            String startDate = payload.containsKey("startDate") ? safeStringValue(payload.get("startDate")) : null;
+            String endDate = payload.containsKey("endDate") ? safeStringValue(payload.get("endDate")) : null;
+
+            // Check if moving to a different column
+            Task task = taskService.getTaskById(taskId).orElse(null);
+            if (task == null) {
+                return null;
+            }
+            
+            if (columnId != null && !columnId.equals(task.getColumn().getId())) {
+                // Check if user has MOVE_TASKS right
+                if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
+                    throw new RuntimeException("User doesn't have permission to move tasks");
+                }
+            }
+            
+            String tagName = payload.containsKey("tags") ? safeStringValue(payload.get("tags")) : null;
+            Long boardIdFromPayload = null;
+            if (payload.containsKey("boardId")) {
+                boardIdFromPayload = safeParseLong(payload.get("boardId"));
+            } else if (payload.containsKey("projectId")) {
+                boardIdFromPayload = safeParseLong(payload.get("projectId"));
+            }
+            
+            Task updatedTask;
+            if (payload.containsKey("tagId")) {
+                Long tagId = safeParseLong(payload.get("tagId"));
+                logger.info("Updating task with tag ID: {}", tagId);
+                updatedTask = taskService.updateTaskWithTagId(
+                    taskId, title, description, position, columnId, tagId, startDate, endDate);
+            } else {
+                logger.info("Updating tag with name: {}, boardId: {}", tagName, boardIdFromPayload);
+                updatedTask = taskService.updateTask(
+                    taskId, title, description, position, columnId, tagName, startDate, endDate, boardIdFromPayload);
+            }
+            
+            return updatedTask;
+        } catch (Exception e) {
+            logger.error("Error updating task basic info: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
+    
+    /**
+     * Обновляет список участников задачи
+     */
+    @Transactional
+    private void updateTaskParticipants(Long taskId, Map<String, Object> payload, User currentUser) {
+        if (!payload.containsKey("participants") || !(payload.get("participants") instanceof List)) {
+            return;
+        }
+        
+        List<Object> participants = (List<Object>) payload.get("participants");
+        logger.info("Processing participants update: {}", participants);
+        
+        // Get current participants
+        Set<User> currentParticipants = taskService.getTaskParticipants(taskId);
+        logger.info("Current participants: {}", currentParticipants.stream().map(User::getId).collect(Collectors.toList()));
+        
+        List<Long> newParticipantIds = new ArrayList<>();
+        List<String> newParticipantUsernames = new ArrayList<>();
+        
+        // Process new participants list - добавляем новых участников
+        for (Object participant : participants) {
+            if (participant instanceof Number) {
+                // If participant is a number (ID)
+                Long userId = ((Number) participant).longValue();
+                newParticipantIds.add(userId);
+                userRepository.findById(userId).ifPresent(user -> {
+                    if (!currentParticipants.contains(user)) {
+                        try {
                             taskService.addParticipantToTask(taskId, user.getId());
                             logger.info("Added participant by ID: {}", userId);
+                        } catch (Exception e) {
+                            logger.error("Error adding participant ID {}: {}", userId, e.getMessage(), e);
                         }
-                    });
-                } else {
-                    // If participant is a string or object with username
-                    String username = extractUsername(participant);
-                    if (username != null) {
-                        newParticipantUsernames.add(username);
-                        // Add new participants
-                        userRepository.findByUsername(username).ifPresent(user -> {
-                            if (!currentParticipants.contains(user)) {
+                    }
+                });
+            } else {
+                // If participant is a string or object with username
+                String username = extractUsername(participant);
+                if (username != null) {
+                    newParticipantUsernames.add(username);
+                    // Add new participants
+                    userRepository.findByUsername(username).ifPresent(user -> {
+                        if (!currentParticipants.contains(user)) {
+                            try {
                                 taskService.addParticipantToTask(taskId, user.getId());
                                 logger.info("Added participant by username: {}", username);
+                            } catch (Exception e) {
+                                logger.error("Error adding participant by username {}: {}", username, e.getMessage(), e);
                             }
-                        });
-                    }
-                }
-            }
-            
-            // Remove participants that are no longer in the list
-            for (User currentParticipant : currentParticipants) {
-                boolean shouldKeep = newParticipantIds.contains(currentParticipant.getId()) || 
-                                    newParticipantUsernames.contains(currentParticipant.getUsername());
-                if (!shouldKeep) {
-                    taskService.removeParticipantFromTask(taskId, currentParticipant.getId());
-                    logger.info("Removed participant: {}", currentParticipant.getUsername());
+                        }
+                    });
                 }
             }
         }
-
-        // Update checklist items if present
-        if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
+        
+        logger.info("New participant IDs: {}", newParticipantIds);
+        logger.info("New participant usernames: {}", newParticipantUsernames);
+        
+        // Remove participants that are no longer in the list - удаляем отсутствующих участников
+        for (User currentParticipant : new ArrayList<>(currentParticipants)) {
+            boolean shouldKeep = newParticipantIds.contains(currentParticipant.getId()) || 
+                                newParticipantUsernames.contains(currentParticipant.getUsername());
+            
+            logger.info("Checking if should keep participant ID {}: {}", currentParticipant.getId(), shouldKeep);
+            
+            if (!shouldKeep) {
+                try {
+                    taskService.removeParticipantFromTask(taskId, currentParticipant.getId());
+                    logger.info("Removed participant: {} (ID: {})", currentParticipant.getUsername(), currentParticipant.getId());
+                } catch (Exception e) {
+                    logger.error("Error removing participant ID {}: {}", currentParticipant.getId(), e.getMessage(), e);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Обновляет чеклист задачи
+     */
+    @Transactional
+    private void updateTaskChecklist(Long taskId, Map<String, Object> payload) {
+        if (!payload.containsKey("checklist")) {
+            return;
+        }
+        
+        // Загружаем текущие пункты чеклиста для сравнения
+        Task currentTask = taskService.getTaskById(taskId).orElse(null);
+        if (currentTask == null) {
+            return;
+        }
+        
+        Set<Long> existingItemIds = currentTask.getChecklist().stream()
+            .map(ChecklistItem::getId)
+            .collect(Collectors.toSet());
+        
+        Set<Long> newItemIds = new HashSet<>();
+        
+        // Обработка нового списка
+        if (payload.get("checklist") instanceof List) {
             List<Object> checklistItems = (List<Object>) payload.get("checklist");
+            logger.info("Processing checklist update: current items: {}, new items: {}", 
+                existingItemIds.size(), checklistItems.size());
             
             // Process new checklist items
             for (int i = 0; i < checklistItems.size(); i++) {
@@ -509,45 +641,46 @@ public class TaskController {
                     if (itemId != null) {
                         // Update existing item
                         checklistItemService.updateChecklistItem(itemId, text, completed, i);
+                        newItemIds.add(itemId); // Отмечаем, что этот ID присутствует в новом списке
                     } else {
                         // Create new item
                         ChecklistItem checklistItem = checklistItemService.createChecklistItem(taskId, text, i);
                         if (completed) {
                             checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
                         }
+                        newItemIds.add(checklistItem.getId());
                     }
                 }
             }
-            
-            // Remove items that have been deleted
-            if (payload.containsKey("deletedChecklistItems") && payload.get("deletedChecklistItems") instanceof List) {
-                List<Object> deletedItems = (List<Object>) payload.get("deletedChecklistItems");
-                for (Object deletedItem : deletedItems) {
-                    Long itemId = Long.parseLong(safeStringValue(deletedItem));
-                    checklistItemService.deleteChecklistItem(itemId);
-                }
+        } else if (payload.get("checklist") == null || "".equals(payload.get("checklist")) || 
+                  (payload.get("checklist") instanceof List && ((List)payload.get("checklist")).isEmpty())) {
+            logger.info("Checklist is empty or null, clearing all items");
+            // Чеклист пустой, просто переходим к удалению всех старых элементов
+        } else {
+            logger.warn("Unexpected checklist format: {}", payload.get("checklist"));
+        }
+        
+        // Находим ID элементов, которые есть в текущем чеклисте, но отсутствуют в новом
+        Set<Long> itemsToDelete = new HashSet<>(existingItemIds);
+        itemsToDelete.removeAll(newItemIds);
+        
+        logger.info("Items to delete from checklist: {}", itemsToDelete);
+        
+        // Удаляем элементы, которых нет в новом списке
+        for (Long itemId : itemsToDelete) {
+            checklistItemService.deleteChecklistItem(itemId);
+            logger.info("Deleted checklist item: {}", itemId);
+        }
+        
+        // Если explicitly указаны элементы для удаления, тоже удаляем их
+        if (payload.containsKey("deletedChecklistItems") && payload.get("deletedChecklistItems") instanceof List) {
+            List<Object> deletedItems = (List<Object>) payload.get("deletedChecklistItems");
+            for (Object deletedItem : deletedItems) {
+                Long itemId = Long.parseLong(safeStringValue(deletedItem));
+                checklistItemService.deleteChecklistItem(itemId);
+                logger.info("Deleted checklist item from explicit list: {}", itemId);
             }
         }
-        
-        // Перезагружаем задачу, чтобы получить полные данные
-        updatedTask = taskService.saveAndLogTask(updatedTask);
-
-        if (updatedTask != null) {
-            // Convert to TaskDTO using helper method
-            TaskDTO taskDTO = convertToTaskDTO(updatedTask, boardId);
-            
-            // Add WebSocket notification
-            Map<String, Object> notificationPayload = new HashMap<>(payload);
-            notificationPayload.put("id", taskDTO.getId());
-            notificationPayload.put("initiatedBy", currentUser.getUsername());
-            notificationPayload.put("checklist", taskDTO.getChecklist());
-            notificationPayload.put("attachments", taskDTO.getAttachments());
-            webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
-            
-            return ResponseEntity.ok(taskDTO);
-        }
-        
-        return ResponseEntity.badRequest().build();
     }
 
     private String safeStringValue(Object obj) {

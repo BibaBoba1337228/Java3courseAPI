@@ -275,7 +275,21 @@ public class BoardController {
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal User currentUser) {
         
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+        System.out.println("Creating column in board " + boardId + " by user " + currentUser.getUsername() + " (ID: " + currentUser.getId() + ")");
+        
+        // Get all rights for debugging
+        Set<BoardRight> userRights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+        System.out.println("User rights on board: " + userRights);
+        
+        // Accept either CREATE_SECTIONS or MOVE_COLUMNS right
+        boolean hasCreateSectionsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_SECTIONS);
+        boolean hasMoveColumnsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS);
+        
+        System.out.println("Has CREATE_SECTIONS right: " + hasCreateSectionsRight);
+        System.out.println("Has MOVE_COLUMNS right: " + hasMoveColumnsRight);
+        
+        if (!hasCreateSectionsRight && !hasMoveColumnsRight) {
+            System.out.println("Permission denied: User does not have CREATE_SECTIONS or MOVE_COLUMNS right");
             return ResponseEntity.status(403).body(null);
         }
         
@@ -306,7 +320,21 @@ public class BoardController {
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal User currentUser) {
         
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+        System.out.println("Updating column " + columnId + " in board " + boardId + " by user " + currentUser.getUsername() + " (ID: " + currentUser.getId() + ")");
+        
+        // Get all rights for debugging
+        Set<BoardRight> userRights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+        System.out.println("User rights on board: " + userRights);
+        
+        // Accept either EDIT_SECTIONS or MOVE_COLUMNS right for column updates
+        boolean hasEditSectionsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_SECTIONS);
+        boolean hasMoveColumnsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS);
+        
+        System.out.println("Has EDIT_SECTIONS right: " + hasEditSectionsRight);
+        System.out.println("Has MOVE_COLUMNS right: " + hasMoveColumnsRight);
+        
+        if (!hasEditSectionsRight && !hasMoveColumnsRight) {
+            System.out.println("Permission denied: User does not have EDIT_SECTIONS or MOVE_COLUMNS right");
             return ResponseEntity.status(403).body(null);
         }
         
@@ -336,7 +364,21 @@ public class BoardController {
             @PathVariable Long columnId,
             @AuthenticationPrincipal User currentUser) {
         
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS)) {
+        System.out.println("Deleting column " + columnId + " in board " + boardId + " by user " + currentUser.getUsername() + " (ID: " + currentUser.getId() + ")");
+        
+        // Get all rights for debugging
+        Set<BoardRight> userRights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+        System.out.println("User rights on board: " + userRights);
+        
+        // Accept either DELETE_SECTIONS or MOVE_COLUMNS right
+        boolean hasDeleteSectionsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_SECTIONS);
+        boolean hasMoveColumnsRight = boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS);
+        
+        System.out.println("Has DELETE_SECTIONS right: " + hasDeleteSectionsRight);
+        System.out.println("Has MOVE_COLUMNS right: " + hasMoveColumnsRight);
+        
+        if (!hasDeleteSectionsRight && !hasMoveColumnsRight) {
+            System.out.println("Permission denied: User does not have DELETE_SECTIONS or MOVE_COLUMNS right");
             return ResponseEntity.status(403).build();
         }
         
@@ -379,5 +421,56 @@ public class BoardController {
         }
         
         return ResponseEntity.badRequest().build();
+    }
+
+    @PostMapping("/{boardId}/debug/grant-edit-sections")
+    public ResponseEntity<String> debugGrantEditSections(
+            @PathVariable Long boardId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        try {
+            // Only allow in development environment
+            boardRightService.grantBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_SECTIONS);
+            Set<BoardRight> rights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+            
+            return ResponseEntity.ok("Granted EDIT_SECTIONS right to user. Current rights: " + rights);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/{boardId}/debug/rights")
+    public ResponseEntity<Set<BoardRight>> debugGetRights(
+            @PathVariable Long boardId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        try {
+            Set<BoardRight> rights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+            System.out.println("User rights for board " + boardId + ": " + rights);
+            return ResponseEntity.ok(rights);
+        } catch (Exception e) {
+            System.err.println("Error getting rights: " + e.getMessage());
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+
+    @PostMapping("/{boardId}/debug/grant-column-rights")
+    public ResponseEntity<String> debugGrantColumnRights(
+            @PathVariable Long boardId,
+            @AuthenticationPrincipal User currentUser) {
+        
+        try {
+            // Выдаем все права для работы с колонками
+            boardRightService.grantBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_SECTIONS);
+            boardRightService.grantBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_SECTIONS);
+            boardRightService.grantBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_SECTIONS);
+            boardRightService.grantBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_COLUMNS);
+            
+            Set<BoardRight> rights = boardRightService.getUserBoardRights(boardId, currentUser.getId());
+            
+            return ResponseEntity.ok("Выданы все права для работы с колонками. Текущие права: " + rights);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Ошибка: " + e.getMessage());
+        }
     }
 } 

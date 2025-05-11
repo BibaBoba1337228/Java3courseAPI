@@ -154,11 +154,15 @@ public class Task {
     }
 
     public void addParticipant(User user) {
-        participants.add(user);
+        if (user != null) {
+            this.participants.add(user);
+        }
     }
 
     public void removeParticipant(User user) {
-        participants.remove(user);
+        if (user != null) {
+            this.participants.remove(user);
+        }
     }
 
     public void addChecklistItem(ChecklistItem item) {
