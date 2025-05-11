@@ -4,14 +4,16 @@ public class ProjectDTO {
     private Long id;
     private String title;
     private String description;
+    private String emoji;
 
     public ProjectDTO() {
     }
 
-    public ProjectDTO(Long id, String title, String description) {
+    public ProjectDTO(Long id, String title, String description, String emoji) {
         this.id = id;
         this.title = title;
         this.description = description;
+        this.emoji = emoji;
     }
 
     public Long getId() {
@@ -36,5 +38,13 @@ public class ProjectDTO {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getEmoji() {
+        return emoji;
+    }
+    
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
 }

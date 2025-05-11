@@ -7,6 +7,7 @@ public class BoardDTO {
     private Long id;
     private String title;
     private String description;
+    private String emoji;
     private Long projectId;
     private Set<Long> participantIds;
     private List<TagDTO> tags;
@@ -14,18 +15,20 @@ public class BoardDTO {
     public BoardDTO() {
     }
 
-    public BoardDTO(Long id, String title, String description, Long projectId, Set<Long> participantIds) {
+    public BoardDTO(Long id, String title, String description, String emoji, Long projectId, Set<Long> participantIds) {
         this.id = id;
         this.title = title;
         this.description = description;
+        this.emoji = emoji;
         this.projectId = projectId;
         this.participantIds = participantIds;
     }
 
-    public BoardDTO(Long id, String title, String description, Long projectId, Set<Long> participantIds, List<TagDTO> tags) {
+    public BoardDTO(Long id, String title, String description, String emoji, Long projectId, Set<Long> participantIds, List<TagDTO> tags) {
         this.id = id;
         this.title = title;
         this.description = description;
+        this.emoji = emoji;
         this.projectId = projectId;
         this.participantIds = participantIds;
         this.tags = tags;
@@ -53,6 +56,14 @@ public class BoardDTO {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getEmoji() {
+        return emoji;
+    }
+    
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
 
     public Long getProjectId() {

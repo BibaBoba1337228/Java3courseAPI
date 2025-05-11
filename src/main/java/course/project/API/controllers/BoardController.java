@@ -143,7 +143,11 @@ public class BoardController {
         // method ensures the project owner is added with all rights
         
         return boardService.createBoard(boardDTO)
-                .map(board -> ResponseEntity.status(HttpStatus.CREATED).body(board))
+                .map(board -> {
+                    // If socketEvent is true, send a notification about the board creation
+                    webSocketService.notifyProjectParticipants(boardDTO.getProjectId(), "BOARD_CREATED", board);
+                    return ResponseEntity.status(HttpStatus.CREATED).body(board);
+                })
                 .orElse(ResponseEntity.badRequest().build());
     }
 

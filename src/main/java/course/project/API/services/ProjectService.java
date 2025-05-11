@@ -65,10 +65,13 @@ public class ProjectService {
             User owner = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
             
-            Project project = new Project(projectDTO.getTitle(), projectDTO.getDescription());
-            project.setOwner(owner);
+            Project project = new Project(
+                projectDTO.getTitle(), 
+                projectDTO.getDescription(),
+                projectDTO.getEmoji(),
+                owner
+            );
 
-            
             System.out.println("Saving project with title: " + projectDTO.getTitle() + " and owner: " + username);
             Project savedProject = projectRepository.save(project);
             
@@ -95,6 +98,7 @@ public class ProjectService {
                 .map(project -> {
                     project.setTitle(projectDTO.getTitle());
                     project.setDescription(projectDTO.getDescription());
+                    project.setEmoji(projectDTO.getEmoji());
                     return modelMapper.map(projectRepository.save(project), ProjectDTO.class);
                 });
     }

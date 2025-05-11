@@ -8,6 +8,7 @@ public class ProjectWithParticipantsOwnerInvitationsDTO {
     private Long id;
     private String title;
     private String description;
+    private String emoji;
     private Set<UserResponse> participants;
     private UserResponse owner;
     private Set<InvitationWithRecipientDTO> invitations;
@@ -15,10 +16,11 @@ public class ProjectWithParticipantsOwnerInvitationsDTO {
     public ProjectWithParticipantsOwnerInvitationsDTO() {
     }
 
-    public ProjectWithParticipantsOwnerInvitationsDTO(Long id, String title, String description, Set<UserResponse> participants, UserResponse owner, Set<InvitationWithRecipientDTO> invitations) {
+    public ProjectWithParticipantsOwnerInvitationsDTO(Long id, String title, String description, String emoji, Set<UserResponse> participants, UserResponse owner, Set<InvitationWithRecipientDTO> invitations) {
         this.id = id;
         this.title = title;
         this.description = description;
+        this.emoji = emoji;
         this.participants = participants;
         this.owner = owner;
         this.invitations = invitations;
@@ -46,6 +48,14 @@ public class ProjectWithParticipantsOwnerInvitationsDTO {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public String getEmoji() {
+        return emoji;
+    }
+
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
 
     public Set<UserResponse> getParticipants() {

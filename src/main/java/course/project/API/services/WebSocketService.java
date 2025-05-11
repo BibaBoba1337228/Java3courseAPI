@@ -83,4 +83,26 @@ public class WebSocketService {
     public int getBoardConnectionCount(Long boardId) {
         return boardSessions.containsKey(boardId) ? boardSessions.get(boardId).size() : 0;
     }
+
+    /**
+     * Notifies all project participants about an event related to a project
+     */
+    public void notifyProjectParticipants(Long projectId, String type, Object payload) {
+        WebSocketMessage message = new WebSocketMessage(type, convertObjectToMap(payload));
+        messagingTemplate.convertAndSend("/topic/projects/" + projectId, message);
+    }
+
+    /**
+     * Converts an object to a Map for WebSocket payload
+     */
+    private Map<String, Object> convertObjectToMap(Object object) {
+        if (object instanceof Map) {
+            return (Map<String, Object>) object;
+        }
+        
+        // For DTOs and other objects, create a simple map with the object as the "data" field
+        Map<String, Object> map = new HashMap<>();
+        map.put("data", object);
+        return map;
+    }
 } 

@@ -46,6 +46,7 @@ public class TaskController {
     private final BoardService boardService;
     private final ProjectService projectService;
     private final ProjectRightService projectRightService;
+    private final TaskHistoryService taskHistoryService;
 
     @Autowired
     public TaskController(TaskService taskService, UserRepository userRepository, 
@@ -57,7 +58,8 @@ public class TaskController {
                           WebSocketService webSocketService,
                           BoardService boardService,
                           ProjectService projectService,
-                          ProjectRightService projectRightService) {
+                          ProjectRightService projectRightService,
+                          TaskHistoryService taskHistoryService) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
@@ -70,6 +72,7 @@ public class TaskController {
         this.boardService = boardService;
         this.projectService = projectService;
         this.projectRightService = projectRightService;
+        this.taskHistoryService = taskHistoryService;
     }
 
     // Helper method to convert Task to TaskDTO with all needed relations
@@ -250,123 +253,127 @@ public class TaskController {
             return ResponseEntity.status(403).body(null);
         }
         
-        String title = safeStringValue(payload.get("title"));
-        String description = payload.containsKey("description") ? 
-                safeStringValue(payload.get("description")) : "";
-        Integer position = payload.containsKey("position") ? 
-                safeParseInteger(payload.get("position")) : 0;
-                
-        // Парсим даты, если они есть
-        String startDate = payload.containsKey("startDate") ? 
-                safeStringValue(payload.get("startDate")) : null;
-        String endDate = payload.containsKey("endDate") ? 
-                safeStringValue(payload.get("endDate")) : null;
-                
-        Task task;
-        
-        // Check if we have a tag ID or tag name
-        if (payload.containsKey("tagId")) {
-            Long tagId = safeParseLong(payload.get("tagId"));
-            if (tagId != null) {
-                logger.info("Creating task with tag ID: {}", tagId);
-                task = taskService.createTaskWithTagId(title, description, columnId, null, startDate, endDate, tagId);
+        try {
+            String title = safeStringValue(payload.get("title"));
+            String description = payload.containsKey("description") ? 
+                    safeStringValue(payload.get("description")) : "";
+            Integer position = payload.containsKey("position") ? 
+                    safeParseInteger(payload.get("position")) : 0;
+                    
+            // Парсим даты, если они есть
+            String startDate = payload.containsKey("startDate") ? 
+                    safeStringValue(payload.get("startDate")) : null;
+            String endDate = payload.containsKey("endDate") ? 
+                    safeStringValue(payload.get("endDate")) : null;
+                    
+            Task task;
+            
+            // Check if we have a tag ID or tag name
+            if (payload.containsKey("tagId")) {
+                Long tagId = safeParseLong(payload.get("tagId"));
+                if (tagId != null) {
+                    logger.info("Creating task with tag ID: {}", tagId);
+                    task = taskService.createTaskWithTagId(title, description, columnId, currentUser.getId(), startDate, endDate, tagId);
+                } else {
+                    logger.info("Tag ID is null or invalid, creating task without tag");
+                    task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, null, boardId);
+                }
             } else {
-                logger.info("Tag ID is null or invalid, creating task without tag");
-                task = taskService.createTask(title, description, columnId, null, startDate, endDate, null, boardId);
+                // Парсим тег, если он есть (по имени)
+                String tagName = payload.containsKey("tags") ? 
+                        safeStringValue(payload.get("tags")) : null;
+                
+                logger.info("Processing tag: {}, boardId: {}", tagName, boardId);
+                
+                if (tagName != null && !tagName.isEmpty() && boardId != null) {
+                    logger.info("Available tags for boardId {}: {}", 
+                        boardId, tagRepository.findByBoardId(boardId));
+                }
+                
+                // Создаем задачу с использованием boardId для тегов
+                task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, tagName, boardId);
             }
-        } else {
-            // Парсим тег, если он есть (по имени)
-            String tagName = payload.containsKey("tags") ? 
-                    safeStringValue(payload.get("tags")) : null;
             
-            logger.info("Processing tag: {}, boardId: {}", tagName, boardId);
+            logger.info("Created task: {}, tag: {}", task.getId(), task.getTag());
             
-            if (tagName != null && !tagName.isEmpty() && boardId != null) {
-                logger.info("Available tags for boardId {}: {}", 
-                    boardId, tagRepository.findByBoardId(boardId));
-            }
-            
-            // Создаем задачу с использованием boardId для тегов
-            task = taskService.createTask(title, description, columnId, null, startDate, endDate, tagName, boardId);
-        }
-        
-        logger.info("Created task: {}, tag: {}", task.getId(), task.getTag());
-        
-        // Добавляем участников, если они есть
-        if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
-            List<Object> participants = (List<Object>) payload.get("participants");
-            logger.info("Processing participants: {}", participants);
-
-            for (Object participant : participants) {
-                if (participant instanceof Number) {
-                    Long userId = ((Number) participant).longValue();
-                    userRepository.findById(userId).ifPresent(user -> {
-                        task.addParticipant(user);
-                        logger.info("Added participant by ID: {}", userId);
-                    });
-                } else {
-                    String username = extractUsername(participant);
-                    logger.info("Extracted username: {}", username);
-
-                    if (username != null) {
-                        userRepository.findByUsername(username).ifPresent(user -> {
+            // Добавляем участников, если они есть
+            if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
+                List<Object> participants = (List<Object>) payload.get("participants");
+                logger.info("Processing participants: {}", participants);
+    
+                for (Object participant : participants) {
+                    if (participant instanceof Number) {
+                        Long userId = ((Number) participant).longValue();
+                        userRepository.findById(userId).ifPresent(user -> {
                             task.addParticipant(user);
-                            logger.info("Added participant by username: {}", username);
+                            logger.info("Added participant by ID: {}", userId);
                         });
+                    } else {
+                        String username = extractUsername(participant);
+                        logger.info("Extracted username: {}", username);
+    
+                        if (username != null) {
+                            userRepository.findByUsername(username).ifPresent(user -> {
+                                task.addParticipant(user);
+                                logger.info("Added participant by username: {}", username);
+                            });
+                        }
                     }
                 }
             }
-        }
-        
-        // Добавляем элементы чеклиста, если они есть
-        if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
-            List<Object> checklistItems = (List<Object>) payload.get("checklist");
-            logger.info("Processing checklist items: {}", checklistItems);
             
-            for (int i = 0; i < checklistItems.size(); i++) {
-                final int position_i = i;  // Make effectively final for lambda
-                if (checklistItems.get(i) instanceof Map) {
-                    Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
-                    String text = safeStringValue(item.get("text"));
-                    boolean completed = item.containsKey("completed") && 
-                            Boolean.parseBoolean(safeStringValue(item.get("completed")));
-                    
-                    logger.info("Creating checklist item: {}, completed: {}, position: {}", text, completed, position_i);
-                    ChecklistItem checklistItem = checklistItemService.createChecklistItem(task.getId(), text, position_i);
-                    
-                    if (completed) {
-                        checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
-                        logger.info("Updated checklist item completed status: {}", checklistItem.getId());
+            // Добавляем элементы чеклиста, если они есть
+            if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
+                List<Object> checklistItems = (List<Object>) payload.get("checklist");
+                logger.info("Processing checklist items: {}", checklistItems);
+                
+                for (int i = 0; i < checklistItems.size(); i++) {
+                    final int position_i = i;  // Make effectively final for lambda
+                    if (checklistItems.get(i) instanceof Map) {
+                        Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
+                        String text = safeStringValue(item.get("text"));
+                        boolean completed = item.containsKey("completed") && 
+                                Boolean.parseBoolean(safeStringValue(item.get("completed")));
+                        
+                        logger.info("Creating checklist item: {}, completed: {}, position: {}", text, completed, position_i);
+                        ChecklistItem checklistItem = checklistItemService.createChecklistItem(task.getId(), text, position_i);
+                        
+                        if (completed) {
+                            checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
+                            logger.info("Updated checklist item completed status: {}", checklistItem.getId());
+                        }
+                    } else {
+                        logger.warn("Checklist item at position {} is not a map: {}", position_i, checklistItems.get(position_i));
                     }
-                } else {
-                    logger.warn("Checklist item at position {} is not a map: {}", position_i, checklistItems.get(position_i));
                 }
             }
-        }
-        
-        // Добавляем вложения, если они есть в payload
-        if (payload.containsKey("attachments") && payload.get("attachments") instanceof List) {
-            List<Object> attachments = (List<Object>) payload.get("attachments");
-            logger.info("Processing attachments: {}", attachments);
             
-            // В этом месте мы НЕ можем создать настоящие вложения, так как они требуют загрузки файлов
-            // Вместо этого мы логируем запрос и информируем, что для создания вложений нужно использовать 
-            // отдельный API для загрузки файлов: POST /api/attachments/upload
-            if (!attachments.isEmpty()) {
-                logger.info("Attachment data was provided in task creation, but file upload is required.");
-                logger.info("To add attachments, use the API: POST /api/attachments/upload with taskId={}, file and uploadedBy", task.getId());
+            // Process attachments (just logging, actual upload is separate)
+            if (payload.containsKey("attachments") && payload.get("attachments") instanceof List) {
+                List<Object> attachments = (List<Object>) payload.get("attachments");
+                logger.info("Processing attachments: {}", attachments);
+                
+                if (!attachments.isEmpty()) {
+                    logger.info("Attachment data was provided in task creation, but file upload is required.");
+                    logger.info("To add attachments, use the API: POST /api/attachments/upload with taskId={}, file and uploadedBy", task.getId());
+                }
             }
-        }
-        
-        Task finalTask = task;
-        if (finalTask != null) {
-            // Сохраняем задачу с участниками
-            Task updatedTask = taskService.saveAndLogTask(finalTask);
             
-            // Convert to TaskDTO using helper method
-            TaskDTO taskDTO = convertToTaskDTO(updatedTask, boardId);
+            // Save the task
+            Task finalTask = taskService.saveAndLogTask(task);
             
-            // Convert TaskDTO to Map for WebSocket notification
+            // Record task history in a separate transaction
+            try {
+                taskHistoryService.recordTaskCreation(currentUser, finalTask);
+            } catch (Exception e) {
+                logger.error("Failed to record task history: {}", e.getMessage(), e);
+                // We continue even if history recording fails - this shouldn't stop task creation
+            }
+            
+            // Convert to TaskDTO
+            TaskDTO taskDTO = convertToTaskDTO(finalTask, boardId);
+            
+            // Notify via WebSocket
             Map<String, Object> notificationPayload = new HashMap<>();
             notificationPayload.put("id", taskDTO.getId());
             notificationPayload.put("title", taskDTO.getTitle());
@@ -380,13 +387,13 @@ public class TaskController {
             notificationPayload.put("checklist", taskDTO.getChecklist());
             notificationPayload.put("attachments", taskDTO.getAttachments());
             
-            // Add WebSocket notification with TaskDTO data
             webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
             
             return ResponseEntity.status(HttpStatus.CREATED).body(taskDTO);
+        } catch (Exception e) {
+            logger.error("Error creating task: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        
-        return ResponseEntity.badRequest().build();
     }
 
     @PutMapping("/{taskId}")
@@ -411,6 +418,9 @@ public class TaskController {
             
             logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
             
+            // Store the original task for history comparison
+            Task oldTask = taskService.cloneTask(task);
+            
             // Обновляем базовую информацию о задаче
             Task updatedTask = updateTaskBasicInfo(taskId, payload, boardId, currentUser);
             if (updatedTask == null) {
@@ -425,22 +435,29 @@ public class TaskController {
                 // Не прерываем выполнение, продолжаем с другими обновлениями
             }
             
-            // Обновляем чеклист
+            // Обновляем чеклист задачи
             try {
                 updateTaskChecklist(taskId, payload);
             } catch (Exception e) {
                 logger.error("Error updating task checklist: {}", e.getMessage(), e);
-                // Не прерываем выполнение, продолжаем с другими обновлениями
+                // Не прерываем выполнение при ошибке
             }
             
-            // Перезагружаем задачу, чтобы получить полные данные
-            Task finalTask = taskService.getTaskById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found after updating: " + taskId));
-
-            // Convert to TaskDTO using helper method
-            TaskDTO taskDTO = convertToTaskDTO(finalTask, boardId);
+            // Get the latest version of the task after all updates
+            Task latestTask = taskService.getTaskById(taskId).orElse(updatedTask);
             
-            // Add WebSocket notification - используем аналогичный подход как при создании задачи
+            // Record task update history in a separate transaction
+            try {
+                taskHistoryService.recordTaskUpdate(currentUser, oldTask, latestTask);
+            } catch (Exception e) {
+                logger.error("Failed to record task update history: {}", e.getMessage(), e);
+                // Continue even if history recording fails
+            }
+            
+            // Convert to TaskDTO
+            TaskDTO taskDTO = convertToTaskDTO(latestTask, boardId);
+            
+            // Convert TaskDTO to Map for WebSocket notification
             Map<String, Object> notificationPayload = new HashMap<>();
             notificationPayload.put("id", taskDTO.getId());
             notificationPayload.put("title", taskDTO.getTitle());
@@ -455,22 +472,13 @@ public class TaskController {
             notificationPayload.put("attachments", taskDTO.getAttachments());
             notificationPayload.put("initiatedBy", currentUser.getUsername());
             
-            // Добавляем дополнительные поля из оригинального payload, которые могут понадобиться клиенту
-            if (payload.containsKey("deletedChecklistItems")) {
-                notificationPayload.put("deletedChecklistItems", payload.get("deletedChecklistItems"));
-            }
-            
+            // Add WebSocket notification
             webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
             
             return ResponseEntity.ok(taskDTO);
         } catch (Exception e) {
-            logger.error("Unexpected error in updateTask: {}", e.getMessage(), e);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", e.getMessage());
-            TaskDTO errorDTO = new TaskDTO();
-            errorDTO.setId(taskId);
-            errorDTO.setTitle("Error updating task: " + e.getMessage());
-            return ResponseEntity.status(500).body(errorDTO);
+            logger.error("Error updating task: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
     
@@ -478,7 +486,7 @@ public class TaskController {
      * Обновляет основную информацию о задаче (название, описание, позиция, колонка, метка, даты)
      */
     @Transactional
-    private Task updateTaskBasicInfo(Long taskId, Map<String, Object> payload, Long boardId, User currentUser) {
+    protected Task updateTaskBasicInfo(Long taskId, Map<String, Object> payload, Long boardId, User currentUser) {
         try {
             String title = payload.containsKey("title") ? safeStringValue(payload.get("title")) : null;
             String description = payload.containsKey("description") ? safeStringValue(payload.get("description")) : null;
@@ -531,7 +539,7 @@ public class TaskController {
      * Обновляет список участников задачи
      */
     @Transactional
-    private void updateTaskParticipants(Long taskId, Map<String, Object> payload, User currentUser) {
+    protected void updateTaskParticipants(Long taskId, Map<String, Object> payload, User currentUser) {
         if (!payload.containsKey("participants") || !(payload.get("participants") instanceof List)) {
             return;
         }
@@ -604,82 +612,68 @@ public class TaskController {
     }
     
     /**
-     * Обновляет чеклист задачи
+     * Обновляет чеклист задачи - полностью заменяет старый чеклист новым
      */
     @Transactional
-    private void updateTaskChecklist(Long taskId, Map<String, Object> payload) {
+    protected void updateTaskChecklist(Long taskId, Map<String, Object> payload) {
         if (!payload.containsKey("checklist")) {
-            return;
+            return; // Чеклист не меняется, если его нет в запросе
         }
         
-        // Загружаем текущие пункты чеклиста для сравнения
-        Task currentTask = taskService.getTaskById(taskId).orElse(null);
-        if (currentTask == null) {
-            return;
-        }
-        
-        Set<Long> existingItemIds = currentTask.getChecklist().stream()
-            .map(ChecklistItem::getId)
-            .collect(Collectors.toSet());
-        
-        Set<Long> newItemIds = new HashSet<>();
-        
-        // Обработка нового списка
-        if (payload.get("checklist") instanceof List) {
-            List<Object> checklistItems = (List<Object>) payload.get("checklist");
-            logger.info("Processing checklist update: current items: {}, new items: {}", 
-                existingItemIds.size(), checklistItems.size());
+        try {
+            logger.info("Replacing checklist for task ID: {}", taskId);
             
-            // Process new checklist items
-            for (int i = 0; i < checklistItems.size(); i++) {
-                if (checklistItems.get(i) instanceof Map) {
-                    Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
-                    String text = safeStringValue(item.get("text"));
-                    boolean completed = item.containsKey("completed") && Boolean.parseBoolean(safeStringValue(item.get("completed")));
-                    Long itemId = item.containsKey("id") ? Long.parseLong(safeStringValue(item.get("id"))) : null;
-                    
-                    if (itemId != null) {
-                        // Update existing item
-                        checklistItemService.updateChecklistItem(itemId, text, completed, i);
-                        newItemIds.add(itemId); // Отмечаем, что этот ID присутствует в новом списке
-                    } else {
-                        // Create new item
+            // Получаем текущую задачу
+            Task currentTask = taskService.getTaskById(taskId).orElse(null);
+            if (currentTask == null) {
+                logger.error("Task not found with ID: {}", taskId);
+                return;
+            }
+            
+            // Очищаем существующий чеклист напрямую через коллекцию задачи
+            List<ChecklistItem> existingItems = new ArrayList<>(currentTask.getChecklist());
+            for (ChecklistItem item : existingItems) {
+                currentTask.removeChecklistItem(item);
+                checklistItemService.deleteChecklistItem(item.getId());
+            }
+            
+            // Сохраняем задачу с пустым чеклистом
+            taskService.saveAndLogTask(currentTask);
+            
+            // Если пришел пустой чеклист, просто завершаем (чеклист уже пустой)
+            if (payload.get("checklist") == null || 
+                "".equals(payload.get("checklist")) || 
+                (payload.get("checklist") instanceof List && ((List)payload.get("checklist")).isEmpty())) {
+                logger.info("Received empty checklist, all items deleted");
+                return;
+            }
+            
+            // Добавляем новые элементы из запроса
+            if (payload.get("checklist") instanceof List) {
+                List<Object> checklistItems = (List<Object>) payload.get("checklist");
+                logger.info("Adding {} new checklist items", checklistItems.size());
+                
+                for (int i = 0; i < checklistItems.size(); i++) {
+                    if (checklistItems.get(i) instanceof Map) {
+                        Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
+                        String text = safeStringValue(item.get("text"));
+                        boolean completed = item.containsKey("completed") && 
+                                          Boolean.parseBoolean(safeStringValue(item.get("completed")));
+                        
+                        // Создаем новые элементы и добавляем их к задаче
                         ChecklistItem checklistItem = checklistItemService.createChecklistItem(taskId, text, i);
                         if (completed) {
                             checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
                         }
-                        newItemIds.add(checklistItem.getId());
+                        logger.info("Created new checklist item: {}", checklistItem.getId());
                     }
                 }
+            } else {
+                logger.warn("Unexpected checklist format: {}", payload.get("checklist"));
             }
-        } else if (payload.get("checklist") == null || "".equals(payload.get("checklist")) || 
-                  (payload.get("checklist") instanceof List && ((List)payload.get("checklist")).isEmpty())) {
-            logger.info("Checklist is empty or null, clearing all items");
-            // Чеклист пустой, просто переходим к удалению всех старых элементов
-        } else {
-            logger.warn("Unexpected checklist format: {}", payload.get("checklist"));
-        }
-        
-        // Находим ID элементов, которые есть в текущем чеклисте, но отсутствуют в новом
-        Set<Long> itemsToDelete = new HashSet<>(existingItemIds);
-        itemsToDelete.removeAll(newItemIds);
-        
-        logger.info("Items to delete from checklist: {}", itemsToDelete);
-        
-        // Удаляем элементы, которых нет в новом списке
-        for (Long itemId : itemsToDelete) {
-            checklistItemService.deleteChecklistItem(itemId);
-            logger.info("Deleted checklist item: {}", itemId);
-        }
-        
-        // Если explicitly указаны элементы для удаления, тоже удаляем их
-        if (payload.containsKey("deletedChecklistItems") && payload.get("deletedChecklistItems") instanceof List) {
-            List<Object> deletedItems = (List<Object>) payload.get("deletedChecklistItems");
-            for (Object deletedItem : deletedItems) {
-                Long itemId = Long.parseLong(safeStringValue(deletedItem));
-                checklistItemService.deleteChecklistItem(itemId);
-                logger.info("Deleted checklist item from explicit list: {}", itemId);
-            }
+        } catch (Exception e) {
+            logger.error("Error replacing checklist: {}", e.getMessage(), e);
+            throw e;
         }
     }
 
@@ -728,28 +722,42 @@ public class TaskController {
             @PathVariable Long taskId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get the task to check permissions
-        Task task = taskService.getTaskById(taskId).orElse(null);
-        if (task == null) {
-            return ResponseEntity.notFound().build();
+        try {
+            // Get the task to check permissions
+            Task task = taskService.getTaskById(taskId).orElse(null);
+            if (task == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Long boardId = task.getColumn().getBoard().getId();
+            
+            // Check if user has DELETE_TASKS right on the board
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_TASKS)) {
+                return ResponseEntity.status(403).build();
+            }
+            
+            // Record task deletion history before deleting the task in a separate transaction
+            try {
+                taskHistoryService.recordTaskDeletion(currentUser, task);
+            } catch (Exception e) {
+                logger.error("Failed to record task deletion history: {}", e.getMessage(), e);
+                // Continue even if history recording fails
+            }
+            
+            // Delete the task (TaskService now handles deleting history records first)
+            taskService.deleteTask(taskId);
+            
+            // Add WebSocket notification
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("taskId", taskId);
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            webSocketService.sendMessageToBoard(boardId, "TASK_DELETED", notificationPayload);
+            
+            return ResponseEntity.noContent().build();
+        } catch (Exception e) {
+            logger.error("Error deleting task: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        
-        Long boardId = task.getColumn().getBoard().getId();
-        
-        // Check if user has DELETE_TASKS right on the board
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.DELETE_TASKS)) {
-            return ResponseEntity.status(403).build();
-        }
-        
-        taskService.deleteTask(taskId);
-        
-        // Add WebSocket notification
-        Map<String, Object> notificationPayload = new HashMap<>();
-        notificationPayload.put("taskId", taskId);
-        notificationPayload.put("initiatedBy", currentUser.getUsername());
-        webSocketService.sendMessageToBoard(boardId, "TASK_DELETED", notificationPayload);
-        
-        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/column/{columnId}")

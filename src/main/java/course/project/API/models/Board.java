@@ -20,6 +20,9 @@ public class Board {
 
     @Column
     private String description;
+    
+    @Column
+    private String emoji;
 
     @ManyToOne
     @JoinColumn(name = "project_id", nullable = false)
@@ -53,6 +56,13 @@ public class Board {
         this.description = description;
         this.project = project;
     }
+    
+    public Board(String title, String description, String emoji, Project project) {
+        this.title = title;
+        this.description = description;
+        this.emoji = emoji;
+        this.project = project;
+    }
 
     public Long getId() {
         return id;
@@ -76,6 +86,14 @@ public class Board {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getEmoji() {
+        return emoji;
+    }
+    
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
 
     public Project getProject() {

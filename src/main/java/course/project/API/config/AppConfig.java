@@ -60,6 +60,7 @@ public class AppConfig {
             destination.setId(source.getId());
             destination.setTitle(source.getTitle());
             destination.setDescription(source.getDescription());
+            destination.setEmoji(source.getEmoji());
             
             if (source.getOwner() != null) {
                 destination.setOwner(modelMapper.map(source.getOwner(), UserResponse.class));

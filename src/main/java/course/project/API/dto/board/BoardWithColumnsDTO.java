@@ -8,6 +8,7 @@ public class BoardWithColumnsDTO {
     private Long id;
     private String title;
     private String description;
+    private String emoji;
     private Long projectId;
     private Set<UserResponse> participants;
     private List<ColumnWithTasksDTO> columns;
@@ -38,6 +39,14 @@ public class BoardWithColumnsDTO {
     
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getEmoji() {
+        return emoji;
+    }
+    
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
     
     public Long getProjectId() {

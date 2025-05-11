@@ -87,7 +87,12 @@ public class BoardService {
         return projectRepository.findById(boardDTO.getProjectId())
                 .flatMap(project -> {
                     // Создаем и настраиваем Board
-                    Board board = new Board(boardDTO.getTitle(), boardDTO.getDescription(), project);
+                    Board board = new Board(
+                        boardDTO.getTitle(), 
+                        boardDTO.getDescription(), 
+                        boardDTO.getEmoji(),
+                        project
+                    );
                     
                     // Always add project owner to board with all rights
                     User projectOwner = project.getOwner();
@@ -101,62 +106,49 @@ public class BoardService {
                     
                     // Only add specified participants, not all project participants
                     if (boardDTO.getParticipantIds() != null) {
-                        Set<User> participants = new HashSet<>();
-                        for (Long userId : boardDTO.getParticipantIds()) {
-                            // Пропускаем null значения в списке participantIds
-                            if (userId == null) {
-                                continue;
-                            }
-                            
+                        boardDTO.getParticipantIds().forEach(userId -> {
                             userRepository.findById(userId).ifPresent(user -> {
-                                // Only add users that are already in the project
-                                if (project.getParticipants().contains(user) || project.getOwner().equals(user)) {
-                                    participants.add(user);
-                                    // Grant VIEW_BOARD right to the participant
-                                    board.addUserRight(user, BoardRight.VIEW_BOARD);
-                                }
+                                board.addParticipant(user);
+                                // Give the user basic rights on this board
+                                board.addUserRight(user, BoardRight.VIEW_BOARD);
                             });
-                        }
-                        // We don't overwrite the participants to ensure the owner is always included
-                        for (User participant : participants) {
-                            if (!board.getParticipants().contains(participant)) {
-                                board.addParticipant(participant);
-                            }
-                        }
+                        });
                     }
-
+                    
                     // Add users with ACCESS_ALL_BOARDS marker to this board
                     addUsersWithAllBoardsAccessToBoard(project, board);
-
-                    // Сохраняем доску перед созданием тегов
+                    
                     Board savedBoard = boardRepository.save(board);
                     
-                    // Сохраняем теги в отдельном цикле для избежания проблем с final переменными
-                    if (boardDTO.getTags() != null && !boardDTO.getTags().isEmpty()) {
-                        for (TagDTO tagDTO : boardDTO.getTags()) {
-                            // Создаем тег с сохраненной доской
-                            Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), savedBoard);
-                            // Сохраняем тег
-                            Tag savedTag = tagRepository.save(tag);
-                            // Добавляем сохраненный тег к доске
-                            savedBoard.getTags().add(savedTag);
-                        }
-                        // Обновляем доску с новыми тегами
-                        savedBoard = boardRepository.save(savedBoard);
-                    }
+                    // Create default columns for the board
+                    createDefaultColumns(savedBoard);
                     
-                    // Формируем DTO для ответа
-                    BoardDTO savedBoardDTO = modelMapper.map(savedBoard, BoardDTO.class);
-                    savedBoardDTO.setProjectId(savedBoard.getProject().getId());
+                    // Create board DTO for response
+                    BoardDTO createdBoardDTO = modelMapper.map(savedBoard, BoardDTO.class);
+                    createdBoardDTO.setProjectId(project.getId());
                     
-                    // Устанавливаем boardId для каждого тега
-                    if (savedBoardDTO.getTags() != null) {
-                        final Long boardId = savedBoard.getId(); // используем final для использования в лямбде
-                        savedBoardDTO.getTags().forEach(tag -> tag.setBoardId(boardId));
-                    }
-                    
-                    return Optional.of(savedBoardDTO);
+                    return Optional.of(createdBoardDTO);
                 });
+    }
+
+    /**
+     * Creates default columns for a newly created board
+     * @param board The board to create columns for
+     */
+    private void createDefaultColumns(Board board) {
+        // Create default columns: "To Do", "In Progress", "Done"
+        DashBoardColumn todoColumn = new DashBoardColumn("To Do", board, 0);
+        DashBoardColumn inProgressColumn = new DashBoardColumn("In Progress", board, 1);
+        DashBoardColumn doneColumn = new DashBoardColumn("Done", board, 2);
+        
+        dashboardColumnRepository.save(todoColumn);
+        dashboardColumnRepository.save(inProgressColumn);
+        dashboardColumnRepository.save(doneColumn);
+        
+        // Add columns to the board
+        board.addColumn(todoColumn);
+        board.addColumn(inProgressColumn);
+        board.addColumn(doneColumn);
     }
 
     /**
@@ -196,97 +188,20 @@ public class BoardService {
 
     @Transactional
     public Optional<BoardDTO> updateBoard(Long id, BoardDTO boardDTO) {
-        try {
-            Board board = boardRepository.findById(id).orElse(null);
-            if (board == null) {
-                logger.error("Не удалось найти доску с id: {}", id);
-                return Optional.empty();
-            }
-            
-            // Обновляем основные поля
-            board.setTitle(boardDTO.getTitle());
-            board.setDescription(boardDTO.getDescription());
-            
-            // Ensure project owner has all rights
-            if (board.getProject() != null && board.getProject().getOwner() != null) {
-                User projectOwner = board.getProject().getOwner();
-                // Add project owner if not already present
-                if (!board.getParticipants().contains(projectOwner)) {
-                    board.addParticipant(projectOwner);
-                }
-                // Grant all rights to project owner
-                for (BoardRight right : BoardRight.values()) {
-                    if (!board.hasRight(projectOwner, right)) {
-                        board.addUserRight(projectOwner, right);
-                    }
-                }
-            }
-            
-            // Обновляем участников, сохраняя существующие
-            if (boardDTO.getParticipantIds() != null) {
-                // Создаем новый список участников, сохраняя владельца проекта
-                Set<User> updatedParticipants = new HashSet<>();
-                
-                // Ensure project owner is in the participants list
-                if (board.getProject() != null && board.getProject().getOwner() != null) {
-                    updatedParticipants.add(board.getProject().getOwner());
-                }
-                
-                // Добавляем новых участников из запроса
-                for (Long userId : boardDTO.getParticipantIds()) {
-                    if (userId != null) {
-                        Optional<User> userOpt = userRepository.findById(userId);
-                        if (userOpt.isPresent()) {
-                            User user = userOpt.get();
-                            updatedParticipants.add(user);
-                            if (!board.hasRight(user, BoardRight.VIEW_BOARD)) {
-                                // Добавляем право просмотра новому участнику
-                                board.addUserRight(user, BoardRight.VIEW_BOARD);
-                            }
-                        }
-                    }
-                }
-                
-                // Обновляем список участников
-                board.setParticipants(updatedParticipants);
-            }
-            
-            // Обновляем существующие теги или добавляем новые
-            if (boardDTO.getTags() != null) {
-                // Удаляем все существующие теги доски
-                List<Tag> existingTags = new ArrayList<>(board.getTags());
-                for (Tag tag : existingTags) {
-                    board.removeTag(tag);
-                    tagRepository.delete(tag);
-                }
-                
-                // Добавляем новые теги из запроса
-                for (TagDTO tagDTO : boardDTO.getTags()) {
-                    Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
-                    board.addTag(tag);
-                    tagRepository.save(tag);
-                }
-            }
+        return boardRepository.findById(id)
+                .flatMap(board -> {
+                    board.setTitle(boardDTO.getTitle());
+                    board.setDescription(boardDTO.getDescription());
+                    board.setEmoji(boardDTO.getEmoji());
                     
-            // Сохраняем изменения доски
-            Board savedBoard = boardRepository.save(board);
-            
-            // Преобразуем сохраненную доску в DTO
-            BoardDTO savedBoardDTO = modelMapper.map(savedBoard, BoardDTO.class);
-            savedBoardDTO.setProjectId(savedBoard.getProject().getId());
-            
-            // Устанавливаем boardId для каждого тега
-            if (savedBoardDTO.getTags() != null) {
-                final Long boardId = savedBoard.getId();
-                savedBoardDTO.getTags().forEach(tag -> tag.setBoardId(boardId));
-            }
-            
-            logger.info("Доска обновлена успешно: {}", savedBoard.getId());
-            return Optional.of(savedBoardDTO);
-        } catch (Exception e) {
-            logger.error("Ошибка при обновлении доски: {} - {}", id, e.getMessage(), e);
-            return Optional.empty();
-        }
+                    Board updatedBoard = boardRepository.save(board);
+                    
+                    // Create board DTO for response
+                    BoardDTO updatedBoardDTO = modelMapper.map(updatedBoard, BoardDTO.class);
+                    updatedBoardDTO.setProjectId(updatedBoard.getProject().getId());
+                    
+                    return Optional.of(updatedBoardDTO);
+                });
     }
 
     @Transactional
@@ -333,6 +248,7 @@ public class BoardService {
                     dto.setId(board.getId());
                     dto.setTitle(board.getTitle());
                     dto.setDescription(board.getDescription());
+                    dto.setEmoji(board.getEmoji());
                     dto.setProjectId(board.getProject() != null ? board.getProject().getId() : null);
 
                     // Преобразуем участников

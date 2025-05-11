@@ -25,18 +25,24 @@ public class TaskService {
     private final UserRepository userRepository;
     private final TagRepository tagRepository;
     public final AttachmentRepository attachmentRepository;
+    private final TaskHistoryService taskHistoryService;
+    private final TaskHistoryRepository taskHistoryRepository;
 
     @Autowired
     public TaskService(TaskRepository taskRepository, 
                       DashBoardColumnRepository columnRepository,
                       UserRepository userRepository,
                       TagRepository tagRepository,
-                      AttachmentRepository attachmentRepository) {
+                      AttachmentRepository attachmentRepository,
+                      TaskHistoryService taskHistoryService,
+                      TaskHistoryRepository taskHistoryRepository) {
         this.taskRepository = taskRepository;
         this.columnRepository = columnRepository;
         this.userRepository = userRepository;
         this.tagRepository = tagRepository;
         this.attachmentRepository = attachmentRepository;
+        this.taskHistoryService = taskHistoryService;
+        this.taskHistoryRepository = taskHistoryRepository;
     }
 
     @Transactional(readOnly = true)
@@ -361,11 +367,33 @@ public class TaskService {
 
     @Transactional
     public void deleteTask(Long taskId) {
+        // First delete any history records associated with this task
+        try {
+            taskHistoryService.deleteTaskHistory(taskId);
+        } catch (Exception e) {
+            logger.error("Error deleting task history records: {}", e.getMessage(), e);
+            // Continue with task deletion even if history deletion fails
+        }
+        
+        // Now delete the task
         taskRepository.deleteById(taskId);
     }
 
     @Transactional
     public void deleteAllTasksByColumn(Long columnId) {
+        // First delete history records for all tasks in this column
+        List<Task> tasksInColumn = taskRepository.findByColumnId(columnId);
+        
+        for (Task task : tasksInColumn) {
+            try {
+                taskHistoryService.deleteTaskHistory(task.getId());
+            } catch (Exception e) {
+                logger.error("Error deleting history for task ID {}: {}", task.getId(), e.getMessage());
+                // Continue despite errors
+            }
+        }
+        
+        // Now delete the tasks
         taskRepository.deleteByColumnId(columnId);
     }
 
@@ -567,5 +595,23 @@ public class TaskService {
     @Transactional(readOnly = true)
     public DashBoardColumn getColumnById(Long columnId) {
         return columnRepository.findById(columnId).orElse(null);
+    }
+
+    /**
+     * Creates a simplified copy of a task for history comparison
+     * @param original The task to clone
+     * @return A clone of the task
+     */
+    public Task cloneTask(Task original) {
+        Task clone = new Task();
+        clone.setId(original.getId());
+        clone.setTitle(original.getTitle());
+        clone.setDescription(original.getDescription());
+        clone.setPosition(original.getPosition());
+        clone.setColumn(original.getColumn());
+        clone.setTag(original.getTag());
+        clone.setStartDate(original.getStartDate());
+        clone.setEndDate(original.getEndDate());
+        return clone;
     }
 } 

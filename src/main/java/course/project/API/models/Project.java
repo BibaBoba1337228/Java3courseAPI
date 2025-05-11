@@ -19,6 +19,9 @@ public class Project {
 
     @Column
     private String description;
+    
+    @Column
+    private String emoji;
 
     @ManyToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
@@ -55,6 +58,13 @@ public class Project {
         this.description = description;
         this.owner = owner;
     }
+    
+    public Project(String title, String description, String emoji, User owner) {
+        this.title = title;
+        this.description = description;
+        this.emoji = emoji;
+        this.owner = owner;
+    }
 
     public Long getId() {
         return id;
@@ -78,6 +88,14 @@ public class Project {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getEmoji() {
+        return emoji;
+    }
+    
+    public void setEmoji(String emoji) {
+        this.emoji = emoji;
     }
 
     public Set<User> getParticipants() {
