@@ -2,13 +2,11 @@ package course.project.API.controllers;
 
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
-import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.Message;
 import course.project.API.models.User;
 import course.project.API.services.ChatService;
 import course.project.API.services.MessageService;
-import course.project.API.services.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chats")

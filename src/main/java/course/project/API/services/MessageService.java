@@ -26,7 +26,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,9 +36,7 @@ public class MessageService {
     private final UserRepository userRepository;
     private final MessageAttachmentRepository attachmentRepository;
     private final ModelMapper modelMapper;
-
-    @Value("${app.upload.dir}")
-    private String uploadDir;
+    private final String uploadDir = "uploads";
 
     @Autowired
     public MessageService(
