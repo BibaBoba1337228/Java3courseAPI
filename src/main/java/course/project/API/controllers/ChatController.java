@@ -2,20 +2,27 @@ package course.project.API.controllers;
 
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
+import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.Message;
 import course.project.API.models.User;
+import course.project.API.repositories.ChatRepository;
 import course.project.API.services.ChatService;
 import course.project.API.services.MessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -24,16 +31,18 @@ public class ChatController {
 
     private final ChatService chatService;
     private final MessageService messageService;
+    private final ChatRepository chatRepository;
 
     @Autowired
-    public ChatController(ChatService chatService, MessageService messageService) {
+    public ChatController(ChatService chatService, MessageService messageService, ChatRepository chatRepository) {
         this.chatService = chatService;
         this.messageService = messageService;
+        this.chatRepository = chatRepository;
     }
 
     @PostMapping
     public ResponseEntity<ChatDTO> createChat(
-            @RequestBody CreateChatRequest request,
+            @RequestBody CreateChatDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
             ChatDTO chat = chatService.createChat(request, currentUser);
@@ -94,6 +103,16 @@ public class ChatController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         try {
+            Optional<Chat> chatOpt = chatRepository.findById(chatId);
+            if (chatOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            Chat chat = chatOpt.get();
+            if (!chat.isGroupChat()){
+                return ResponseEntity.status(418).build();
+            }
+
             ChatRole role = chatService.getParticipantRole(chatId, currentUser.getId());
             if (role != ChatRole.OWNER &&  role != ChatRole.MODERATOR) {
                 return ResponseEntity.status(403).body(new SimpleDTO("You don't have permission to add participants"));
@@ -117,6 +136,17 @@ public class ChatController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         try {
+
+            Optional<Chat> chatOpt = chatRepository.findById(chatId);
+            if (chatOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            Chat chat = chatOpt.get();
+            if (!chat.isGroupChat()){
+                return ResponseEntity.status(418).build();
+            }
+
             ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
             ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
 
@@ -150,6 +180,16 @@ public class ChatController {
             @RequestBody ChatRole newRole,
             @AuthenticationPrincipal User currentUser) {
         try {
+            Optional<Chat> chatOpt = chatRepository.findById(chatId);
+            if (chatOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            Chat chat = chatOpt.get();
+            if (!chat.isGroupChat()){
+                return ResponseEntity.status(418).build();
+            }
+
             ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
             ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
 
@@ -179,7 +219,7 @@ public class ChatController {
     @PostMapping("/{chatId}/messages")
     public ResponseEntity<MessageDTO> sendMessage(
             @PathVariable Long chatId,
-            @RequestBody SendMessageRequest request,
+            @RequestBody SendMessageDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
             if (!chatService.isParticipant(chatId, currentUser.getId())) {
@@ -254,7 +294,7 @@ public class ChatController {
     public ResponseEntity<?> editMessage(
             @PathVariable Long chatId,
             @PathVariable Long messageId,
-            @RequestBody SendMessageRequest request,
+            @RequestBody SendMessageDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
             if (!chatService.isParticipant(chatId, currentUser.getId())) {
@@ -302,7 +342,7 @@ public class ChatController {
     }
 
     @GetMapping("/{chatId}/messages")
-    public ResponseEntity<List<MessageDTO>> getMessages(
+    public ResponseEntity<MessagePageDTO> getMessages(
             @PathVariable Long chatId,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
@@ -312,11 +352,32 @@ public class ChatController {
                 return ResponseEntity.status(403).build();
             }
 
-            List<MessageDTO> messages = messageService.getChatMessages(chatId, page, size);
-            return ResponseEntity.ok(messages);
+            Page<MessageDTO> pageResult = messageService.getChatMessages(chatId, page, size);
+            MessagePageDTO response = new MessagePageDTO(
+                pageResult.getContent(),
+                pageResult.hasNext()
+            );
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error getting messages: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
+
+    @GetMapping("/paged")
+    public ResponseEntity<ChatPageDTO> getPagedChats(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @AuthenticationPrincipal User currentUser) {
+        int pageNumber = page != null ? page : 0;
+        int pageSize = size != null ? size : 20;
+        PageRequest pageRequest = PageRequest.of(pageNumber, pageSize);
+        logger.info("Тут пока все окей: {}, {}", pageNumber, pageSize);
+
+        var chatPage = chatService.getPagedChatsWithLastMessage(currentUser.getId(), pageRequest);
+        logger.info("Тут пока все окей: {}", chatPage.getContent().get(0).getId());
+
+        return ResponseEntity.ok(new ChatPageDTO(chatPage.getContent(), chatPage.hasNext()));
+    }
+
 } 

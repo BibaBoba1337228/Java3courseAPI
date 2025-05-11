@@ -31,6 +31,9 @@ public class Message {
     @Column(nullable = false)
     private boolean isEdited;
 
+    @Column(nullable = false)
+    private boolean isReaded;
+
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<MessageAttachment> attachments = new ArrayList<>();
 
@@ -45,6 +48,7 @@ public class Message {
     public Message() {
         this.createdAt = LocalDateTime.now();
         this.isEdited = false;
+        this.isReaded = false;
     }
 
     public Message(Chat chat, User sender, String content) {
@@ -135,7 +139,11 @@ public class Message {
         }
     }
 
-    public boolean isReadBy(User user) {
-        return readBy.contains(user);
+    public boolean isReaded() {
+        return isReaded;
     }
-} 
+
+    public void setReaded(boolean readed) {
+        isReaded = readed;
+    }
+}

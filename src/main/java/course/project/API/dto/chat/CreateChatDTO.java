@@ -2,13 +2,13 @@ package course.project.API.dto.chat;
 
 import java.util.List;
 
-public class CreateChatRequest {
+public class CreateChatDTO {
     private String name;
     private boolean isGroupChat;
     private String avatarURL;
     private List<Long> participantIds;
 
-    public CreateChatRequest() {
+    public CreateChatDTO() {
     }
 
     public String getName() {
@@ -23,8 +23,8 @@ public class CreateChatRequest {
         return isGroupChat;
     }
 
-    public void setGroupChat(boolean groupChat) {
-        isGroupChat = groupChat;
+    public void setIsGroupChat(boolean isGroupChat) {
+        this.isGroupChat = isGroupChat;
     }
 
     public String getAvatarURL() {

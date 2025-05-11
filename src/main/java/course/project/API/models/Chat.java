@@ -44,8 +44,6 @@ public class Chat {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "last_message_at")
-    private LocalDateTime lastMessageAt;
 
     @PrePersist
     protected void onCreate() {
@@ -78,12 +76,11 @@ public class Chat {
         this.name = name;
     }
 
-
     public boolean isGroupChat() {
         return isGroupChat;
     }
 
-    public void setGroupChat(boolean groupChat) {
+    public void setIsGroupChat(boolean groupChat) {
         isGroupChat = groupChat;
     }
 
@@ -127,13 +124,6 @@ public class Chat {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getLastMessageAt() {
-        return lastMessageAt;
-    }
-
-    public void setLastMessageAt(LocalDateTime lastMessageAt) {
-        this.lastMessageAt = lastMessageAt;
-    }
 
     public void addParticipant(User user, ChatRole role) {
         participants.add(user);
@@ -158,7 +148,6 @@ public class Chat {
     public void addMessage(Message message) {
         messages.add(message);
         message.setChat(this);
-        this.lastMessageAt = message.getCreatedAt();
     }
 
     public void removeMessage(Message message) {

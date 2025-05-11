@@ -1,7 +1,11 @@
 package course.project.API.repositories;
 
 import course.project.API.models.Chat;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -10,4 +14,36 @@ import java.util.List;
 public interface ChatRepository extends JpaRepository<Chat, Long> {
     List<Chat> findByParticipantsId(Long userId);
     boolean existsByIdAndParticipantsId(Long chatId, Long userId);
+
+    Page<Chat> findByParticipantsId(Long userId, Pageable pageable);
+
+    @Query(value = """
+        SELECT 
+            c.id, c.name, c.is_group_chat, c.avatar_url, 
+            m.id, m.content, m.created_at, m.is_edited, m.is_readed,
+            u.id, u.name, u.avatarurl
+        FROM chats c
+        JOIN chat_participants cp ON cp.chat_id = c.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM messages m
+            WHERE m.chat_id = c.id
+            ORDER BY m.created_at DESC
+            LIMIT 1
+        ) m ON true
+        LEFT JOIN users u ON m.sender_id = u.id
+        WHERE cp.user_id = :userId
+        ORDER BY IF(m.created_at IS NULL, 1, 0), m.created_at DESC
+        """,
+        countQuery = """
+        SELECT COUNT(*) FROM (
+            SELECT c.id FROM chats c
+            JOIN chat_participants cp ON cp.chat_id = c.id
+            WHERE cp.user_id = :userId
+        ) sub
+        """,
+        nativeQuery = true)
+    Page<Object[]> findChatsWithLastMessageByUserId(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT c FROM Chat c JOIN FETCH c.participants WHERE c.id = :chatId")
+    Chat findByIdWithParticipants(@Param("chatId") Long chatId);
 } 

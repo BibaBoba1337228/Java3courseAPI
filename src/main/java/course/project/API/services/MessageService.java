@@ -1,7 +1,7 @@
 package course.project.API.services;
 
 import course.project.API.dto.chat.MessageDTO;
-import course.project.API.dto.chat.SendMessageRequest;
+import course.project.API.dto.chat.SendMessageDTO;
 import course.project.API.models.Chat;
 import course.project.API.models.Message;
 import course.project.API.models.MessageAttachment;
@@ -13,9 +13,9 @@ import course.project.API.repositories.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,8 +25,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -52,7 +50,7 @@ public class MessageService {
     }
 
     @Transactional
-    public MessageDTO sendMessage(Long chatId, Long senderId, SendMessageRequest request) {
+    public MessageDTO sendMessage(Long chatId, Long senderId, SendMessageDTO request) {
         Chat chat = chatRepository.findById(chatId)
             .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
         
@@ -67,8 +65,6 @@ public class MessageService {
 
         Message savedMessage = messageRepository.save(message);
 
-        // Update chat's last message timestamp
-        chat.setLastMessageAt(savedMessage.getCreatedAt());
         chatRepository.save(chat);
 
         return modelMapper.map(savedMessage, MessageDTO.class);
@@ -85,7 +81,7 @@ public class MessageService {
     }
 
     @Transactional
-    public MessageDTO editMessage(Long messageId, SendMessageRequest request) {
+    public MessageDTO editMessage(Long messageId, SendMessageDTO request) {
         Message message = messageRepository.findById(messageId)
             .orElseThrow(() -> new EntityNotFoundException("Message not found: " + messageId));
         
@@ -110,7 +106,7 @@ public class MessageService {
         }
     }
 
-    public List<MessageDTO> getChatMessages(Long chatId, Integer page, Integer size) {
+    public Page<MessageDTO> getChatMessages(Long chatId, Integer page, Integer size) {
         Chat chat = chatRepository.findById(chatId)
             .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
 
@@ -119,9 +115,8 @@ public class MessageService {
 
         PageRequest pageRequest = PageRequest.of(pageNumber, pageSize, Sort.by("createdAt").descending());
         
-        return messageRepository.findByChatId(chatId, pageRequest).stream()
-            .map(message -> modelMapper.map(message, MessageDTO.class))
-            .collect(Collectors.toList());
+        return messageRepository.findByChatId(chatId, pageRequest)
+            .map(message -> modelMapper.map(message, MessageDTO.class));
     }
 
     @Transactional
@@ -156,5 +151,8 @@ public class MessageService {
         }
     }
 
+    public MessageDTO toDTO(Message message) {
+        return modelMapper.map(message, MessageDTO.class);
+    }
 
 } 

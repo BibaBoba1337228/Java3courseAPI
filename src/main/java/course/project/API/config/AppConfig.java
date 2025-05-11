@@ -12,10 +12,18 @@ import org.modelmapper.convention.MatchingStrategies;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import course.project.API.dto.converters.PersistentBagToSetConverter;
+import course.project.API.dto.chat.ChatDTO;
+import course.project.API.dto.chat.MessageDTO;
+import course.project.API.dto.chat.ChatWithLastMessageDTO;
+import course.project.API.models.Chat;
+import course.project.API.models.Message;
+import course.project.API.models.ChatRole;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
 
 @Configuration
 public class AppConfig {
@@ -27,7 +35,8 @@ public class AppConfig {
         modelMapper.getConfiguration()
             .setMatchingStrategy(MatchingStrategies.STRICT)
             .setFieldMatchingEnabled(true)
-            .setFieldAccessLevel(org.modelmapper.config.Configuration.AccessLevel.PRIVATE);
+            .setFieldAccessLevel(org.modelmapper.config.Configuration.AccessLevel.PRIVATE)
+            .setSkipNullEnabled(true);
         
         modelMapper.addConverter(new PersistentBagToSetConverter<>());
         
@@ -88,6 +97,70 @@ public class AppConfig {
         modelMapper.createTypeMap(Project.class, ProjectWithParticipantsOwnerInvitationsDTO.class)
             .setConverter(projectConverter);
         
-        return modelMapper;
+        Converter<Chat, ChatDTO> chatConverter = ctx -> {
+            Chat source = ctx.getSource();
+            ChatDTO destination = new ChatDTO();
+            
+            destination.setId(source.getId());
+            destination.setName(source.getName());
+            destination.setIsGroupChat(source.isGroupChat());
+            destination.setAvatarURL(source.getAvatarURL());
+            
+            if (source.getParticipants() != null) {
+                Set<UserResponse> participants = source.getParticipants().stream()
+                    .map(user -> modelMapper.map(user, UserResponse.class))
+                    .collect(Collectors.toSet());
+                destination.setParticipants(participants);
+            }
+            
+            if (source.getUserRoles() != null) {
+                Map<Long, ChatRole> roles = new HashMap<>();
+                source.getUserRoles().forEach((userId, role) -> {
+                    if (userId != null) {
+                        roles.put(userId, role);
+                    }
+                });
+                destination.setUserRoles(roles);
+            }
+            
+            return destination;
+        };
+        
+        modelMapper.createTypeMap(Chat.class, ChatDTO.class)
+            .setConverter(chatConverter);
+        
+        // Converter<Message, MessageDTO> messageConverter = ctx -> {
+        //     Message source = ctx.getSource();
+        //     MessageDTO destination = new MessageDTO();
+            
+        //     destination.setId(source.getId());
+        //     destination.setChatId(source.getChat().getId());
+        //     destination.setContent(source.getContent());
+        //     destination.setCreatedAt(source.getCreatedAt());
+        //     destination.setEdited(source.isEdited());
+            
+        //     if (source.getSender() != null) {
+        //         destination.setSender(modelMapper.map(source.getSender(), UserResponse.class));
+        //     }
+            
+        //     if (source.getReadBy() != null) {
+        //         destination.setReadBy(source.getReadBy().stream()
+        //             .map(user -> modelMapper.map(user, UserResponse.class))
+        //             .collect(Collectors.toList()));
+        //     }
+            
+        //     if (source.getAttachments() != null) {
+        //         destination.setAttachments(source.getAttachments().stream()
+        //             .map(attachment -> modelMapper.map(attachment, MessageAttachmentDTO.class))
+        //             .collect(Collectors.toList()));
+        //     }
+            
+        //     return destination;
+        // };
+        
+        // modelMapper.createTypeMap(Message.class, MessageDTO.class)
+        //     .setConverter(messageConverter);
+        
+         return modelMapper;
     }
 } 

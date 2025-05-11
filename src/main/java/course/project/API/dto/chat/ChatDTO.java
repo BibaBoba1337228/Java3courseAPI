@@ -1,8 +1,7 @@
 package course.project.API.dto.chat;
 
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.ChatRole;
-import course.project.API.models.User;
-import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 
@@ -11,8 +10,8 @@ public class ChatDTO {
     private String name;
     private boolean isGroupChat;
     private String avatarURL;
-    private Set<User> participants;
-    private Map<User, ChatRole> userRoles;
+    private Set<UserResponse> participants;
+    private Map<Long, ChatRole> userRoles;
 
     public ChatDTO() {
     }
@@ -38,7 +37,7 @@ public class ChatDTO {
         return isGroupChat;
     }
 
-    public void setGroupChat(boolean groupChat) {
+    public void setIsGroupChat(boolean groupChat) {
         isGroupChat = groupChat;
     }
 
@@ -50,19 +49,19 @@ public class ChatDTO {
         this.avatarURL = avatarURL;
     }
 
-    public Set<User> getParticipants() {
+    public Set<UserResponse> getParticipants() {
         return participants;
     }
 
-    public void setParticipants(Set<User> participants) {
+    public void setParticipants(Set<UserResponse> participants) {
         this.participants = participants;
     }
 
-    public Map<User, ChatRole> getUserRoles() {
+    public Map<Long, ChatRole> getUserRoles() {
         return userRoles;
     }
 
-    public void setUserRoles(Map<User, ChatRole> userRoles) {
+    public void setUserRoles(Map<Long, ChatRole> userRoles) {
         this.userRoles = userRoles;
     }
 

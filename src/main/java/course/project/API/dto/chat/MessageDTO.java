@@ -1,5 +1,6 @@
 package course.project.API.dto.chat;
 
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.User;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -7,14 +8,27 @@ import java.util.List;
 public class MessageDTO {
     private Long id;
     private Long chatId;
-    private User sender;
+    private UserResponse sender;
     private String content;
     private LocalDateTime createdAt;
     private boolean isEdited;
     private List<MessageAttachmentDTO> attachments;
-    private List<User> readBy;
+    private List<UserResponse> readBy;
+    private boolean isReaded;
 
     public MessageDTO() {
+    }
+
+    public MessageDTO(Long id, Long chatId, UserResponse sender, String content, LocalDateTime createdAt, boolean isEdited, List<MessageAttachmentDTO> attachments, List<UserResponse> readBy, boolean isReaded) {
+        this.id = id;
+        this.chatId = chatId;
+        this.sender = sender;
+        this.content = content;
+        this.createdAt = createdAt;
+        this.isEdited = isEdited;
+        this.attachments = attachments;
+        this.readBy = readBy;
+        this.isReaded = isReaded;
     }
 
     public Long getId() {
@@ -33,11 +47,11 @@ public class MessageDTO {
         this.chatId = chatId;
     }
 
-    public User getSender() {
+    public UserResponse getSender() {
         return sender;
     }
 
-    public void setSender(User sender) {
+    public void setSender(UserResponse sender) {
         this.sender = sender;
     }
 
@@ -75,11 +89,19 @@ public class MessageDTO {
         this.attachments = attachments;
     }
 
-    public List<User> getReadBy() {
+    public List<UserResponse> getReadBy() {
         return readBy;
     }
 
-    public void setReadBy(List<User> readBy) {
+    public void setReadBy(List<UserResponse> readBy) {
         this.readBy = readBy;
     }
-} 
+
+    public boolean isReaded() {
+        return isReaded;
+    }
+
+    public void setReaded(boolean readed) {
+        isReaded = readed;
+    }
+}
