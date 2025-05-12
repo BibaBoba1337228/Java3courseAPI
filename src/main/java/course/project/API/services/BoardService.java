@@ -36,6 +36,7 @@ import course.project.API.dto.board.TagDTO;
 import course.project.API.dto.board.TaskDTO;
 import course.project.API.dto.board.ChecklistItemDTO;
 import course.project.API.dto.board.AttachmentDTO;
+import course.project.API.dto.board.BoardWithParticipantsDTO;
 
 @Service
 public class BoardService {
@@ -66,9 +67,29 @@ public class BoardService {
                 .collect(Collectors.toList());
     }
 
-    public List<BoardDTO> getBoardsByProjectId(Long projectId) {
+    public List<BoardWithParticipantsDTO> getBoardsByProjectId(Long projectId) {
         return boardRepository.findByProjectId(projectId).stream()
-                .map(board -> modelMapper.map(board, BoardDTO.class))
+                .map(board -> {
+                    BoardDTO boardDTO = modelMapper.map(board, BoardDTO.class);
+                    boardDTO.setProjectId(projectId);
+                    
+                    // Convert participants to a set of UserResponse objects
+                    Set<UserResponse> participants = board.getParticipants().stream()
+                        .map(user -> modelMapper.map(user, UserResponse.class))
+                        .collect(Collectors.toSet());
+                    
+                    // Add participants to the result by making a custom DTO with participants
+                    BoardWithParticipantsDTO boardWithParticipants = new BoardWithParticipantsDTO();
+                    boardWithParticipants.setId(board.getId());
+                    boardWithParticipants.setTitle(board.getTitle());
+                    boardWithParticipants.setDescription(board.getDescription());
+                    boardWithParticipants.setEmoji(board.getEmoji());
+                    boardWithParticipants.setProjectId(projectId);
+                    boardWithParticipants.setTags(boardDTO.getTags());
+                    boardWithParticipants.setParticipants(participants);
+                    
+                    return boardWithParticipants;
+                })
                 .collect(Collectors.toList());
     }
 

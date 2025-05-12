@@ -3,6 +3,7 @@ package course.project.API.controllers;
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.board.BoardDTO;
 import course.project.API.dto.board.BoardWithColumnsDTO;
+import course.project.API.dto.board.BoardWithParticipantsDTO;
 import course.project.API.dto.project.ProjectDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.models.BoardRight;
@@ -55,7 +56,7 @@ public class BoardController {
     }
 
     @GetMapping("/project/{projectId}")
-    public ResponseEntity<List<BoardDTO>> getBoardsByProject(
+    public ResponseEntity<List<BoardWithParticipantsDTO>> getBoardsByProject(
             @PathVariable Long projectId,
             @AuthenticationPrincipal User currentUser) {
         
@@ -66,10 +67,10 @@ public class BoardController {
                 return ResponseEntity.status(403).body(null);
             }
             
-            List<BoardDTO> allBoards = boardService.getBoardsByProjectId(projectId);
-            List<BoardDTO> userBoards = new ArrayList<>();
+            List<BoardWithParticipantsDTO> allBoards = boardService.getBoardsByProjectId(projectId);
+            List<BoardWithParticipantsDTO> userBoards = new ArrayList<>();
             
-            for (BoardDTO board : allBoards) {
+            for (BoardWithParticipantsDTO board : allBoards) {
                 if (board.getId() != null && boardRightService.hasBoardRight(board.getId(), currentUser.getId(), BoardRight.VIEW_BOARD)) {
                     userBoards.add(board);
                 }
