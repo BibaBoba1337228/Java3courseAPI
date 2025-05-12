@@ -19,7 +19,7 @@ public class Project {
 
     @Column
     private String description;
-    
+
     @Column
     private String emoji;
 

@@ -57,7 +57,7 @@ public class AppConfig {
             
             // Adding sender name and project title
             if (source.getSender() != null) {
-                destination.setSenderName(source.getSender().getUsername());
+                destination.setSenderName(source.getSender().getName());
             }
             
             if (source.getProject() != null) {

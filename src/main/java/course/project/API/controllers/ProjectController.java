@@ -4,10 +4,15 @@ import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.project.ProjectDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
+import course.project.API.dto.board.BoardWithColumnsDTO;
+import course.project.API.dto.board.BoardDTO;
 import course.project.API.models.ProjectRight;
+import course.project.API.models.BoardRight;
 import course.project.API.models.User;
+import course.project.API.models.InvitationStatus;
 import course.project.API.repositories.UserRepository;
 import course.project.API.services.BoardService;
+import course.project.API.services.BoardRightService;
 import course.project.API.services.ProjectRightService;
 import course.project.API.services.ProjectService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,10 +23,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/projects")
@@ -32,14 +39,17 @@ public class ProjectController {
     private final UserRepository userRepository;
     private final ProjectRightService projectRightService;
     private final BoardService boardService;
+    private final BoardRightService boardRightService;
 
     @Autowired
     public ProjectController(ProjectService projectService, UserRepository userRepository, 
-                           ProjectRightService projectRightService, BoardService boardService) {
+                           ProjectRightService projectRightService, BoardService boardService,
+                           BoardRightService boardRightService) {
         this.projectService = projectService;
         this.userRepository = userRepository;
         this.projectRightService = projectRightService;
         this.boardService = boardService;
+        this.boardRightService = boardRightService;
     }
 
     @GetMapping
@@ -66,8 +76,14 @@ public class ProjectController {
 
             ProjectWithParticipantsOwnerInvitationsDTO project = projectOpt.get();
             if (!project.getInvitations().isEmpty()) {
-                logger.info("First participant is a “{}”", project.getInvitations().iterator().next().getClass().getName());
+                logger.info("First participant is a {}", project.getInvitations().iterator().next().getClass().getName());
             }
+            
+            // Filter invitations to only include those with PENDING status
+            project.setInvitations(project.getInvitations().stream()
+                .filter(invitation -> invitation.getStatus() == InvitationStatus.PENDING)
+                .collect(Collectors.toSet()));
+            
             logger.info("Returning project DTO: {}, ID: {}", project.getClass().getName(), project.getId());
 
             return ResponseEntity.ok(project);
@@ -272,6 +288,43 @@ public class ProjectController {
                 "success", false,
                 "message", e.getMessage()
             ));
+        }
+    }
+
+    /**
+     * Returns all boards with detailed information for a specific project
+     */
+    @GetMapping("/{projectId}/boards/details")
+    public ResponseEntity<List<BoardWithColumnsDTO>> getProjectBoardsWithDetails(
+            @PathVariable Long projectId,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            logger.info("Getting boards with details for project ID: {}", projectId);
+            
+            // Check if user has permission to view the project
+            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
+                logger.warn("User {} doesn't have rights to view project: {}", currentUser.getUsername(), projectId);
+                return ResponseEntity.status(403).body(null);
+            }
+            
+            // Get all boards for the project
+            List<BoardDTO> projectBoards = boardService.getBoardsByProjectId(projectId);
+            
+            // Filter boards that the user has access to
+            List<BoardWithColumnsDTO> boardsWithDetails = new ArrayList<>();
+            
+            for (BoardDTO board : projectBoards) {
+                if (board.getId() != null && boardRightService.hasBoardRight(board.getId(), currentUser.getId(), BoardRight.VIEW_BOARD)) {
+                    // Get full details for each board
+                    boardService.getBoardWithDetails(board.getId()).ifPresent(boardsWithDetails::add);
+                }
+            }
+            
+            logger.info("Returning {} boards with details", boardsWithDetails.size());
+            return ResponseEntity.ok(boardsWithDetails);
+        } catch (Exception e) {
+            logger.error("Error getting boards with details for project {}: {}", projectId, e.getMessage(), e);
+            return ResponseEntity.status(400).body(null);
         }
     }
 } 

@@ -110,14 +110,14 @@ public class BoardService {
                             userRepository.findById(userId).ifPresent(user -> {
                                 board.addParticipant(user);
                                 // Give the user basic rights on this board
-                                board.addUserRight(user, BoardRight.VIEW_BOARD);
+                                    board.addUserRight(user, BoardRight.VIEW_BOARD);
                             });
                         });
                     }
-                    
+
                     // Add users with ACCESS_ALL_BOARDS marker to this board
                     addUsersWithAllBoardsAccessToBoard(project, board);
-                    
+
                     Board savedBoard = boardRepository.save(board);
                     
                     // Create default columns for the board
@@ -190,8 +190,8 @@ public class BoardService {
     public Optional<BoardDTO> updateBoard(Long id, BoardDTO boardDTO) {
         return boardRepository.findById(id)
                 .flatMap(board -> {
-                    board.setTitle(boardDTO.getTitle());
-                    board.setDescription(boardDTO.getDescription());
+            board.setTitle(boardDTO.getTitle());
+            board.setDescription(boardDTO.getDescription());
                     board.setEmoji(boardDTO.getEmoji());
                     
                     Board updatedBoard = boardRepository.save(board);
@@ -199,7 +199,7 @@ public class BoardService {
                     // Create board DTO for response
                     BoardDTO updatedBoardDTO = modelMapper.map(updatedBoard, BoardDTO.class);
                     updatedBoardDTO.setProjectId(updatedBoard.getProject().getId());
-                    
+            
                     return Optional.of(updatedBoardDTO);
                 });
     }

@@ -24,7 +24,7 @@ public class ProjectRightController {
         this.projectRightService = projectRightService;
         this.projectRepository = projectRepository;
     }
-    
+
     /**
      * Получает все права пользователя на всех проектах одним запросом
      */
