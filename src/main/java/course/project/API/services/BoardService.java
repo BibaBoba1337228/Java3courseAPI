@@ -144,6 +144,15 @@ public class BoardService {
                     // Create default columns for the board
                     createDefaultColumns(savedBoard);
                     
+                    // Process tags if they exist
+                    if (boardDTO.getTags() != null && !boardDTO.getTags().isEmpty()) {
+                        for (TagDTO tagDTO : boardDTO.getTags()) {
+                            Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), savedBoard);
+                            savedBoard.addTag(tag);
+                            tagRepository.save(tag);
+                        }
+                    }
+                    
                     // Create board DTO for response
                     BoardDTO createdBoardDTO = modelMapper.map(savedBoard, BoardDTO.class);
                     createdBoardDTO.setProjectId(project.getId());
@@ -211,9 +220,28 @@ public class BoardService {
     public Optional<BoardDTO> updateBoard(Long id, BoardDTO boardDTO) {
         return boardRepository.findById(id)
                 .flatMap(board -> {
-            board.setTitle(boardDTO.getTitle());
-            board.setDescription(boardDTO.getDescription());
+                    board.setTitle(boardDTO.getTitle());
+                    board.setDescription(boardDTO.getDescription());
                     board.setEmoji(boardDTO.getEmoji());
+                    
+                    // Process tags if they exist
+                    if (boardDTO.getTags() != null) {
+                        // Clear existing tags
+                        if (board.getTags() != null) {
+                            List<Tag> existingTags = new ArrayList<>(board.getTags());
+                            for (Tag tag : existingTags) {
+                                board.removeTag(tag);
+                            }
+                            tagRepository.deleteByBoardId(board.getId());
+                        }
+                        
+                        // Add new tags
+                        for (TagDTO tagDTO : boardDTO.getTags()) {
+                            Tag tag = new Tag(tagDTO.getName(), tagDTO.getColor(), board);
+                            board.addTag(tag);
+                            tagRepository.save(tag);
+                        }
+                    }
                     
                     Board updatedBoard = boardRepository.save(board);
                     
