@@ -25,13 +25,13 @@ public class Message {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column(nullable = false)
+    @Column(name="is_edited", nullable = false)
     private boolean isEdited;
 
-    @Column(nullable = false)
+    @Column(name="is_readed", nullable = false)
     private boolean isReaded;
 
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)

@@ -41,21 +41,11 @@ public class Chat {
     @JsonManagedReference
     private List<Message> messages = new ArrayList<>();
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     public Chat() {
-        this.createdAt = LocalDateTime.now();
     }
 
     public Chat(String name, boolean isGroupChat) {
-        this();
         this.name = name;
         this.isGroupChat = isGroupChat;
     }
@@ -114,14 +104,6 @@ public class Chat {
 
     public void setMessages(List<Message> messages) {
         this.messages = messages;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
     }
 
 

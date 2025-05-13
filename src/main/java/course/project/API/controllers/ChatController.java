@@ -16,10 +16,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.Optional;
@@ -81,21 +81,6 @@ public class ChatController {
         }
     }
 
-    @GetMapping("/{chatId}")
-    public ResponseEntity<ChatDTO> getChat(
-            @PathVariable Long chatId,
-            @AuthenticationPrincipal User currentUser) {
-        try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-            ChatDTO chat = chatService.getChatById(chatId);
-            return ResponseEntity.ok(chat);
-        } catch (Exception e) {
-            logger.error("Error getting chat: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
-    }
 
     @PostMapping("/{chatId}/participants/{userId}")
     public ResponseEntity<?> addParticipant(
@@ -150,17 +135,14 @@ public class ChatController {
             ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
             ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
 
-            // Only owner can remove moderators
             if ((targetParticipantRole == ChatRole.MODERATOR) && initiatorRole != ChatRole.OWNER) {
                 return ResponseEntity.status(403).body(new SimpleDTO("Only owner can remove admins and moderators"));
             }
 
-            // Only owner or moderator can remove members
             if (targetParticipantRole == ChatRole.MEMBER && initiatorRole != ChatRole.OWNER && initiatorRole != ChatRole.MODERATOR) {
                 return ResponseEntity.status(403).body(new SimpleDTO("You don't have permission to remove participants"));
             }
 
-            // Owner cannot be removed
             if (targetParticipantRole == ChatRole.OWNER) {
                 return ResponseEntity.badRequest().body(new SimpleDTO("Cannot remove chat owner"));
             }
@@ -193,17 +175,14 @@ public class ChatController {
             ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
             ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
 
-            // Only owner can change roles
             if (initiatorRole != ChatRole.OWNER) {
                 return ResponseEntity.status(403).body(new SimpleDTO("Only owner can change roles"));
             }
 
-            // Cannot change owner's role
             if (targetParticipantRole == ChatRole.OWNER) {
                 return ResponseEntity.badRequest().body(new SimpleDTO("Cannot change owner's role"));
             }
 
-            // Cannot promote to owner
             if (newRole == ChatRole.OWNER) {
                 return ResponseEntity.badRequest().body(new SimpleDTO("Cannot promote to owner"));
             }
@@ -341,29 +320,6 @@ public class ChatController {
         }
     }
 
-    @GetMapping("/{chatId}/messages")
-    public ResponseEntity<MessagePageDTO> getMessages(
-            @PathVariable Long chatId,
-            @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size,
-            @AuthenticationPrincipal User currentUser) {
-        try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
-                return ResponseEntity.status(403).build();
-            }
-
-            Page<MessageDTO> pageResult = messageService.getChatMessages(chatId, page, size);
-            MessagePageDTO response = new MessagePageDTO(
-                pageResult.getContent(),
-                pageResult.hasNext()
-            );
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            logger.error("Error getting messages: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     @GetMapping("/paged")
     public ResponseEntity<ChatPageDTO> getPagedChats(
             @RequestParam(required = false) Integer page,
@@ -378,6 +334,69 @@ public class ChatController {
         logger.info("Тут пока все окей: {}", chatPage.getContent().get(0).getId());
 
         return ResponseEntity.ok(new ChatPageDTO(chatPage.getContent(), chatPage.hasNext()));
+    }
+
+    @GetMapping("/{chatId}")
+    public ResponseEntity<ChatWithParticipantsDTO> getChatWithParticipants(
+            @PathVariable Long chatId,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+            ChatWithParticipantsDTO chat = chatService.getChatWithParticipants(chatId, currentUser.getId());
+            return ResponseEntity.ok(chat);
+        } catch (Exception e) {
+            logger.error("Error getting chat with participants: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @GetMapping("/{chatId}/messages")
+    public ResponseEntity<MessagePageDTO> getPaginatedChatMessages(
+            @PathVariable Long chatId,
+            @RequestParam(required = false, defaultValue = "0") Integer offset,
+            @RequestParam(required = false, defaultValue = "20") Integer limit,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+            
+            Page<MessageDTO> messagePage = messageService.getChatMessagesWithOffset(chatId, offset, limit);
+            
+            MessagePageDTO response = new MessagePageDTO(
+                messagePage.getContent(),
+                messagePage.hasNext()
+            );
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error getting paginated messages: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/{chatId}/messages/with-attachments")
+    public ResponseEntity<MessageDTO> sendMessageWithAttachments(
+            @PathVariable Long chatId,
+            @RequestPart("content") String content,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+
+            SendMessageDTO messageDTO = new SendMessageDTO();
+            messageDTO.setContent(content);
+
+            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser.getId(), messageDTO, files);
+            return ResponseEntity.ok(message);
+        } catch (Exception e) {
+            logger.error("Error sending message with attachments: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
     }
 
 } 

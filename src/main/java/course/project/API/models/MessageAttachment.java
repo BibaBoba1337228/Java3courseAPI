@@ -2,7 +2,6 @@ package course.project.API.models;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "message_attachments")
@@ -35,15 +34,11 @@ public class MessageAttachment {
     @JoinColumn(name = "uploaded_by_id", nullable = false)
     private User uploadedBy;
 
-    @Column(nullable = false)
-    private LocalDateTime uploadedAt;
 
     public MessageAttachment() {
-        this.uploadedAt = LocalDateTime.now();
     }
 
     public MessageAttachment(String fileName, String originalFileName, String filePath, String fileType, Long fileSize, User uploadedBy) {
-        this();
         this.fileName = fileName;
         this.originalFileName = originalFileName;
         this.filePath = filePath;
@@ -116,11 +111,4 @@ public class MessageAttachment {
         this.uploadedBy = uploadedBy;
     }
 
-    public LocalDateTime getUploadedAt() {
-        return uploadedAt;
-    }
-
-    public void setUploadedAt(LocalDateTime uploadedAt) {
-        this.uploadedAt = uploadedAt;
-    }
 } 

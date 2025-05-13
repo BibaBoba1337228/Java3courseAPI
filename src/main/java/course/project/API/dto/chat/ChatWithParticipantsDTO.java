@@ -1,20 +1,23 @@
 package course.project.API.dto.chat;
 
-public class ChatWithLastMessageDTO {
+import java.util.List;
+
+public class ChatWithParticipantsDTO {
     private Long id;
     private String name;
     private boolean isGroupChat;
     private String avatarURL;
-    private MessageDTO lastMessage;
+    private List<ParticipantDTO> participants;
 
-    public ChatWithLastMessageDTO() {}
+    public ChatWithParticipantsDTO() {
+    }
 
-    public ChatWithLastMessageDTO(Long id, String name, boolean isGroupChat, String avatarURL, MessageDTO lastMessage) {
+    public ChatWithParticipantsDTO(Long id, String name, boolean isGroupChat, String avatarURL, List<ParticipantDTO> participants) {
         this.id = id;
         this.name = name;
         this.isGroupChat = isGroupChat;
         this.avatarURL = avatarURL;
-        this.lastMessage = lastMessage;
+        this.participants = participants;
     }
 
     public Long getId() {
@@ -49,11 +52,11 @@ public class ChatWithLastMessageDTO {
         this.avatarURL = avatarURL;
     }
 
-    public MessageDTO getLastMessage() {
-        return lastMessage;
+    public List<ParticipantDTO> getParticipants() {
+        return participants;
     }
 
-    public void setLastMessage(MessageDTO lastMessage) {
-        this.lastMessage = lastMessage;
+    public void setParticipants(List<ParticipantDTO> participants) {
+        this.participants = participants;
     }
 } 

@@ -1,7 +1,6 @@
 package course.project.API.dto.chat;
 
 import course.project.API.dto.user.UserResponse;
-import course.project.API.models.User;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -9,25 +8,27 @@ public class MessageDTO {
     private Long id;
     private Long chatId;
     private UserResponse sender;
+    private Long senderId;
     private String content;
     private LocalDateTime createdAt;
     private boolean isEdited;
     private List<MessageAttachmentDTO> attachments;
-    private List<UserResponse> readBy;
+    private List<Long> readByIds;
     private boolean isReaded;
 
     public MessageDTO() {
     }
 
-    public MessageDTO(Long id, Long chatId, UserResponse sender, String content, LocalDateTime createdAt, boolean isEdited, List<MessageAttachmentDTO> attachments, List<UserResponse> readBy, boolean isReaded) {
+    public MessageDTO(Long id, Long chatId, UserResponse sender, String content, LocalDateTime createdAt, boolean isEdited, List<MessageAttachmentDTO> attachments, List<Long> readByIds, boolean isReaded) {
         this.id = id;
         this.chatId = chatId;
         this.sender = sender;
+        this.senderId = (sender != null) ? sender.getId() : null;
         this.content = content;
         this.createdAt = createdAt;
         this.isEdited = isEdited;
         this.attachments = attachments;
-        this.readBy = readBy;
+        this.readByIds = readByIds;
         this.isReaded = isReaded;
     }
 
@@ -71,15 +72,13 @@ public class MessageDTO {
         this.createdAt = createdAt;
     }
 
-
     public boolean isEdited() {
         return isEdited;
     }
 
-    public void setEdited(boolean edited) {
+    public void setIsEdited(boolean edited) {
         isEdited = edited;
     }
-
 
     public List<MessageAttachmentDTO> getAttachments() {
         return attachments;
@@ -89,19 +88,28 @@ public class MessageDTO {
         this.attachments = attachments;
     }
 
-    public List<UserResponse> getReadBy() {
-        return readBy;
-    }
-
-    public void setReadBy(List<UserResponse> readBy) {
-        this.readBy = readBy;
-    }
-
     public boolean isReaded() {
         return isReaded;
     }
 
-    public void setReaded(boolean readed) {
+    public void setIsReaded(boolean readed) {
         isReaded = readed;
     }
+
+    public List<Long> getReadByIds() {
+        return readByIds;
+    }
+
+    public void setReadByIds(List<Long> readByIds) {
+        this.readByIds = readByIds;
+    }
+
+    public Long getSenderId() {
+        return senderId;
+    }
+
+    public void setSenderId(Long senderId) {
+        this.senderId = senderId;
+    }
+
 }

@@ -15,7 +15,7 @@ public class MessagePageDTO {
         this.hasNext = hasNext;
     }
 
-    public List<?> getMessages() {
+    public List<MessageDTO> getMessages() {
         return messages;
     }
 

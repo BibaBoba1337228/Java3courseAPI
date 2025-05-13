@@ -4,6 +4,8 @@ import course.project.API.dto.chat.ChatDTO;
 import course.project.API.dto.chat.CreateChatDTO;
 import course.project.API.dto.chat.ChatWithLastMessageDTO;
 import course.project.API.dto.chat.MessageDTO;
+import course.project.API.dto.chat.ChatWithParticipantsDTO;
+import course.project.API.dto.chat.ParticipantDTO;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.User;
@@ -236,5 +238,42 @@ public class ChatService {
                 messageDTO
             );
         });
+    }
+
+    public ChatWithParticipantsDTO getChatWithParticipants(Long chatId, Long currentUserId) {
+        Chat chat = chatRepository.findById(chatId)
+            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+        
+        String chatName = chat.getName();
+        String chatAvatarURL = chat.getAvatarURL();
+        
+        if (!chat.isGroupChat()) {
+            User companion = chat.getParticipants().stream()
+                .filter(u -> !u.getId().equals(currentUserId))
+                .findFirst()
+                .orElse(null);
+                
+            if (companion != null) {
+                chatName = companion.getName();
+                chatAvatarURL = companion.getAvatarURL();
+            }
+        }
+        
+        List<ParticipantDTO> participantDTOs = chat.getParticipants().stream()
+            .map(user -> new ParticipantDTO(
+                user.getId(),
+                user.getName(),
+                user.getAvatarURL(),
+                chat.getUserRoles().get(user.getId())
+            ))
+            .collect(Collectors.toList());
+        
+        return new ChatWithParticipantsDTO(
+            chat.getId(),
+            chatName,
+            chat.isGroupChat(),
+            chatAvatarURL,
+            participantDTOs
+        );
     }
 }
