@@ -9,7 +9,6 @@ import course.project.API.dto.chat.ParticipantDTO;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.User;
-import course.project.API.models.Message;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.repositories.MessageRepository;
 import course.project.API.repositories.UserRepository;
@@ -32,22 +31,34 @@ import java.util.stream.Collectors;
 public class ChatService {
     private final ChatRepository chatRepository;
     private final UserRepository userRepository;
-    private final MessageRepository messageRepository;
     private final ModelMapper modelMapper;
     private static final Logger logger = LoggerFactory.getLogger(ChatService.class);
 
     @Autowired
-    public ChatService(ChatRepository chatRepository, UserRepository userRepository, MessageRepository messageRepository, ModelMapper modelMapper) {
+    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper) {
         this.chatRepository = chatRepository;
         this.userRepository = userRepository;
-        this.messageRepository = messageRepository;
         this.modelMapper = modelMapper;
     }
 
     @Transactional
     public ChatDTO createChat(CreateChatDTO request, User currentUser) {
+        logger.info("Создание чата: {}, isGroupChat: {}", request.getName(), request.isGroupChat());
+        if (request.isGroupChat() && request.getParticipantIds().size() > 1) {
+            logger.error("Кто то создает личный чат с многими пользователями");
+            return null;
+        }
+        if (!request.isGroupChat() && request.getParticipantIds().size() == 1) {
+            Long otherUserId = request.getParticipantIds().get(0);
+            logger.info("Нашел пользователя {}", otherUserId);
+            if (chatRepository.existsPersonalChatBetweenUsers(currentUser.getId(), otherUserId) == 1) {
+                logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), otherUserId);
+                return null;
+
+            }
+        }
+        
         Chat chat = new Chat();
-        logger.info("Новый чат {}, {}, {}, {}", request.getName(), request.isGroupChat(), request.getAvatarURL());
         chat.setName(request.getName());
         chat.setIsGroupChat(request.isGroupChat());
         chat.setAvatarURL(request.getAvatarURL());
@@ -65,6 +76,7 @@ public class ChatService {
         }
 
         Chat savedChat = chatRepository.save(chat);
+        logger.info("Создан новый чат с ID: {}", savedChat.getId());
         return modelMapper.map(savedChat, ChatDTO.class);
     }
 
@@ -275,5 +287,14 @@ public class ChatService {
             chatAvatarURL,
             participantDTOs
         );
+    }
+
+    public Chat getChatEntityById(Long chatId) {
+        return chatRepository.findById(chatId).orElse(null);
+    }
+
+
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId).orElse(null);
     }
 }

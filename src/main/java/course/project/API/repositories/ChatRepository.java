@@ -3,12 +3,14 @@ package course.project.API.repositories;
 import course.project.API.models.Chat;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ChatRepository extends JpaRepository<Chat, Long> {
@@ -46,4 +48,20 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
 
     @Query("SELECT c FROM Chat c JOIN FETCH c.participants WHERE c.id = :chatId")
     Chat findByIdWithParticipants(@Param("chatId") Long chatId);
+
+    @EntityGraph(attributePaths = {"participants"})
+    Optional<Chat> findProjectWithParticipantsOwnerById(Long id);
+
+
+
+
+    @Query(value = """
+        SELECT EXISTS(
+            SELECT 1 FROM chats c
+            JOIN chat_participants cp1 ON c.id = cp1.chat_id AND cp1.user_id = :userId1
+            JOIN chat_participants cp2 ON c.id = cp2.chat_id AND cp2.user_id = :userId2
+            WHERE c.is_group_chat = 0
+        )
+    """, nativeQuery = true)
+    Long existsPersonalChatBetweenUsers(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
 } 

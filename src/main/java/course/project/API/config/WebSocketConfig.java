@@ -43,15 +43,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
+        logger.info("Configuring client inbound channel");
         registration.interceptors(new ChannelInterceptor() {
             @Override
             public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                logger.info("getting StompHeaderAccessor");
+
                 StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
                 
                 if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
                     logger.info("Processing CONNECT command in WebSocket interceptor");
                     
-
                     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
                     
                     if (authentication != null && authentication.isAuthenticated()) {

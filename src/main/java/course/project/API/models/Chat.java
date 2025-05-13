@@ -2,6 +2,9 @@ package course.project.API.models;
 
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -35,6 +38,7 @@ public class Chat {
     @MapKeyColumn(name = "user_id")
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Map<Long, ChatRole> userRoles = new HashMap<>();
 
     @OneToMany(mappedBy = "chat", cascade = CascadeType.ALL, orphanRemoval = true)

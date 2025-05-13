@@ -13,13 +13,15 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
     protected void configureInbound(MessageSecurityMetadataSourceRegistry messages) {
         messages
             .simpTypeMatchers(SimpMessageType.DISCONNECT).permitAll()
-            .simpTypeMatchers(SimpMessageType.CONNECT, SimpMessageType.HEARTBEAT).authenticated()
+            .simpTypeMatchers(SimpMessageType.CONNECT, SimpMessageType.HEARTBEAT, SimpMessageType.UNSUBSCRIBE).authenticated()
             .simpDestMatchers(
                     "/app/boards/**",
-                    "/queue/private/**"
+                    "/app/chat/**",
+                    "/queue/private/**",
+                    "/topic/boards/**",
+                    "/topic/chat/**"
             )
                 .authenticated()
-            .simpSubscribeDestMatchers("/topic/boards/**").authenticated()
             .anyMessage().denyAll();
     }
 

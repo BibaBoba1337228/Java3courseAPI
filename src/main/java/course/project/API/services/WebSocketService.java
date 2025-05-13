@@ -1,6 +1,8 @@
 package course.project.API.services;
 
 import course.project.API.dto.websocket.WebSocketMessage;
+import course.project.API.models.User;
+import course.project.API.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -13,13 +15,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WebSocketService {
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final UserRepository userRepository;
     
     // Храним информацию о подключенных пользователях по boardId
     private final Map<Long, Map<String, Object>> boardSessions = new ConcurrentHashMap<>();
 
     @Autowired
-    public WebSocketService(SimpMessagingTemplate messagingTemplate) {
+    public WebSocketService(SimpMessagingTemplate messagingTemplate, UserRepository userRepository) {
         this.messagingTemplate = messagingTemplate;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -104,5 +108,14 @@ public class WebSocketService {
         Map<String, Object> map = new HashMap<>();
         map.put("data", object);
         return map;
+    }
+
+    /**
+     * Получает пользователя по ID
+     * @param userId ID пользователя
+     * @return Объект User или null, если пользователь не найден
+     */
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId).orElse(null);
     }
 } 

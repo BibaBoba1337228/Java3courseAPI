@@ -12,6 +12,7 @@ import org.springframework.web.socket.messaging.SessionConnectEvent;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
+import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
 @Component
 public class WebSocketEventListener {
@@ -50,6 +51,15 @@ public class WebSocketEventListener {
         logger.info("Subscription: session=" + headerAccessor.getSessionId() + 
                     ", destination=" + headerAccessor.getDestination());
     }
+
+    @EventListener
+    public void handleUnsubscription(SessionUnsubscribeEvent event) {
+        StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
+        String subscriptionId = headerAccessor.getFirstNativeHeader("id");
+        logger.info("Unsubscription: session=" + headerAccessor.getSessionId() + 
+                    ", subscriptionId=" + subscriptionId);
+    }
+
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
