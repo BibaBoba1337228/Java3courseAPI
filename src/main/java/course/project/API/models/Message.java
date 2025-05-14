@@ -88,7 +88,6 @@ public class Message {
 
     public void setContent(String content) {
         this.content = content;
-        this.isEdited = true;
     }
 
     public LocalDateTime getCreatedAt() {
@@ -103,7 +102,7 @@ public class Message {
         return isEdited;
     }
 
-    public void setEdited(boolean edited) {
+    public void setIsEdited(boolean edited) {
         isEdited = edited;
     }
 
@@ -143,7 +142,7 @@ public class Message {
         return isReaded;
     }
 
-    public void setReaded(boolean readed) {
+    public void setIsReaded(boolean readed) {
         isReaded = readed;
     }
 }

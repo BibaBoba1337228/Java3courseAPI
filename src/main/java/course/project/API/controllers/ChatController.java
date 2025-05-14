@@ -2,17 +2,13 @@ package course.project.API.controllers;
 
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
-import course.project.API.models.Chat;
-import course.project.API.models.ChatRole;
-import course.project.API.models.Message;
-import course.project.API.models.User;
+import course.project.API.models.*;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.services.ChatService;
 import course.project.API.services.MessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpStatus;
@@ -24,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -239,7 +236,7 @@ public class ChatController {
                 return ResponseEntity.status(403).build();
             }
 
-            MessageDTO message = messageService.sendMessage(chatId, currentUser.getId(), request);
+            MessageDTO message = messageService.sendMessage(chatId, currentUser, request);
             
             chatWebSocketController.broadcastNewMessage(chatId, message);
             
@@ -264,7 +261,7 @@ public class ChatController {
             SendMessageDTO messageDTO = new SendMessageDTO();
             messageDTO.setContent(content);
 
-            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser.getId(), messageDTO, files);
+            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser, messageDTO, files);
 
             chatWebSocketController.broadcastNewMessage(chatId, message);
 
@@ -319,24 +316,23 @@ public class ChatController {
             @PathVariable Long messageId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
-                return ResponseEntity.status(403).build();
+            Message message = messageService.getMessageWithAttachmentsByMessageIdAndSenderIdAndChatId(messageId, currentUser.getId() ,chatId);
+            if (message == null) {
+                return ResponseEntity.status(404).body(new SimpleDTO("Сообщение не найдено"));
             }
 
-            Message message = messageService.getMessageById(messageId);
-            if (message == null || !message.getChat().getId().equals(chatId)) {
-                return ResponseEntity.notFound().build();
-            }
-
-            if (!message.getSender().getId().equals(currentUser.getId())) {
-                return ResponseEntity.status(403).body(new SimpleDTO("You don't have permission to delete this message"));
-            }
-            
-            Long senderId = message.getSender().getId();
-            
             messageService.deleteMessage(messageId);
-            
-            chatWebSocketController.broadcastMessageDeleted(chatId, messageId, senderId);
+            for (MessageAttachment attachment : message.getAttachments()) {
+                try {
+                    Path path = Paths.get(attachment.getFilePath());
+                    Files.deleteIfExists(path);
+                    logger.info("Удалил файл с диска: {}", attachment.getFilePath());
+                } catch (IOException e) {
+                    logger.error("Ошибка при удалении файла: {}, ошибка: {}", attachment.getFilePath(), e.getMessage());
+                }
+            }
+
+            chatWebSocketController.broadcastMessageDeleted(chatId, messageId, currentUser.getId());
             
             return ResponseEntity.ok(new SimpleDTO("Message deleted successfully"));
         } catch (Exception e) {
@@ -352,24 +348,15 @@ public class ChatController {
             @RequestBody SendMessageDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
-                return ResponseEntity.status(403).build();
+            Message message = messageService.getMessageByMessageIdAndSenderIdAndChatId(messageId, currentUser.getId(), chatId);
+            if (message == null) {
+                return ResponseEntity.status(404).body(new SimpleDTO("Сообщение не найдено"));
             }
-
-            Message message = messageService.getMessageById(messageId);
-            if (message == null || !message.getChat().getId().equals(chatId)) {
-                return ResponseEntity.notFound().build();
-            }
-
-            if (!message.getSender().getId().equals(currentUser.getId())) {
-                return ResponseEntity.status(403).body(new SimpleDTO("You can only edit your own messages"));
-            }
-
-            MessageDTO updatedMessage = messageService.editMessage(messageId, request);
+            messageService.editMessage(message, request);
             
-            chatWebSocketController.broadcastMessageEdited(chatId, updatedMessage);
+            chatWebSocketController.broadcastMessageEdited(chatId, new EditedMessageDTO(message.getContent(), currentUser.getId(), messageId));
             
-            return ResponseEntity.ok(updatedMessage);
+            return ResponseEntity.ok(new SimpleDTO("Сообщение обновлено"));
         } catch (Exception e) {
             logger.error("Error editing message: {}", e.getMessage());
             return ResponseEntity.badRequest().body(new SimpleDTO(e.getMessage()));

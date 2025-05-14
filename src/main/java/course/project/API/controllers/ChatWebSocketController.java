@@ -1,5 +1,7 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.chat.EditedMessageDTO;
+import course.project.API.dto.chat.SendMessageDTO;
 import course.project.API.dto.chatSocket.ChatSocketEventDTO;
 import course.project.API.dto.chat.MessageDTO;
 import course.project.API.dto.chatSocket.MessageActionPayload;
@@ -79,7 +81,7 @@ public class ChatWebSocketController {
         }
     }
 
-    public void broadcastMessageEdited(Long chatId, MessageDTO message) {
+    public void broadcastMessageEdited(Long chatId, EditedMessageDTO message) {
         try {
             ChatSocketEventDTO event = ChatSocketEventDTO.messageEdited(chatId, message);
             broadcastToChatParticipants(chatId, event);
@@ -90,16 +92,6 @@ public class ChatWebSocketController {
 
     private void broadcastToChatParticipants(Long chatId, ChatSocketEventDTO event) {
         try {
-            if (chatId == null) {
-                logger.error("Cannot broadcast to chat with null ID");
-                return;
-            }
-            
-            Chat chat = chatService.getChatEntityById(chatId);
-            if (chat == null) {
-                logger.error("Chat not found: {}", chatId);
-                return;
-            }
 
             String chatDestination = "/topic/chat/" + chatId;
             logger.debug("Broadcasting to {}: {}", chatDestination, event);

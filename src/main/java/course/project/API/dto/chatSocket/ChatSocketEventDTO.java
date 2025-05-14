@@ -1,6 +1,9 @@
 package course.project.API.dto.chatSocket;
 
+import course.project.API.dto.chat.EditedMessageDTO;
 import course.project.API.dto.chat.MessageDTO;
+import course.project.API.dto.chat.SendMessageDTO;
+
 import java.time.LocalDateTime;
 
 public class ChatSocketEventDTO {
@@ -79,7 +82,7 @@ public class ChatSocketEventDTO {
         return new ChatSocketEventDTO(MESSAGE_DELETED, chatId, payload);
     }
 
-    public static ChatSocketEventDTO messageEdited(Long chatId, MessageDTO message) {
+    public static ChatSocketEventDTO messageEdited(Long chatId, EditedMessageDTO message) {
         return new ChatSocketEventDTO(MESSAGE_EDITED, chatId, message);
     }
 

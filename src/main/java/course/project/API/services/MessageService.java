@@ -3,6 +3,7 @@ package course.project.API.services;
 import course.project.API.dto.chat.MessageAttachmentDTO;
 import course.project.API.dto.chat.MessageDTO;
 import course.project.API.dto.chat.SendMessageDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Chat;
 import course.project.API.models.Message;
 import course.project.API.models.MessageAttachment;
@@ -63,24 +64,23 @@ public class MessageService {
     }
 
     @Transactional
-    public MessageDTO sendMessage(Long chatId, Long senderId, SendMessageDTO request) {
+    public MessageDTO sendMessage(Long chatId, User currentUser, SendMessageDTO request) {
         Chat chat = chatRepository.findById(chatId)
             .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        
-        User sender = userRepository.findById(senderId)
-            .orElseThrow(() -> new EntityNotFoundException("User not found: " + senderId));
+
 
         Message message = new Message();
         message.setChat(chat);
-        message.setSender(sender);
+        message.setSender(currentUser);
         message.setContent(request.getContent());
         message.setCreatedAt(LocalDateTime.now());
 
         Message savedMessage = messageRepository.save(message);
 
         chatRepository.save(chat);
-
-        return modelMapper.map(savedMessage, MessageDTO.class);
+        MessageDTO msg = modelMapper.map(savedMessage, MessageDTO.class);
+        msg.setSenderId(currentUser.getId());
+        return msg;
     }
 
     public Message getMessageById(Long messageId) {
@@ -88,21 +88,26 @@ public class MessageService {
             .orElseThrow(() -> new EntityNotFoundException("Message not found: " + messageId));
     }
 
-    @Transactional
-    public void deleteMessage(Long messageId) {
-        messageRepository.deleteById(messageId);
+
+    public Message getMessageWithAttachmentsByMessageIdAndSenderIdAndChatId(Long messageId, Long senderId, Long chatId) {
+        logger.info("Удаляю messageId: {}, senderId: {}, chatId: {}", messageId, senderId, chatId);
+        return messageRepository.findMessageWithAttachmentsByChatIdAndSenderIdAndMessageId(chatId, senderId, messageId);
+    }
+    public Message getMessageByMessageIdAndSenderIdAndChatId(Long messageId, Long senderId, Long chatId) {
+        logger.info("Удаляю messageId: {}, senderId: {}, chatId: {}", messageId, senderId, chatId);
+        return messageRepository.findMessageByChatIdAndSenderIdAndMessageId(chatId, senderId, messageId);
     }
 
     @Transactional
-    public MessageDTO editMessage(Long messageId, SendMessageDTO request) {
-        Message message = messageRepository.findById(messageId)
-            .orElseThrow(() -> new EntityNotFoundException("Message not found: " + messageId));
-        
-        message.setContent(request.getContent());
-        message.setEdited(true);
+    public void deleteMessage(Long messageId) {
+        messageRepository.deleteFullyByMessageId(messageId);
+    }
 
-        Message savedMessage = messageRepository.save(message);
-        return modelMapper.map(savedMessage, MessageDTO.class);
+    @Transactional
+    public Message editMessage(Message message, SendMessageDTO request) {
+        message.setContent(request.getContent());
+        message.setIsEdited(true);
+        return messageRepository.save(message);
     }
 
     @Transactional
@@ -228,12 +233,9 @@ public class MessageService {
 
 
     @Transactional
-    public MessageDTO sendMessageWithAttachments(Long chatId, Long senderId, SendMessageDTO request, List<MultipartFile> files) {
+    public MessageDTO sendMessageWithAttachments(Long chatId, User sender, SendMessageDTO request, List<MultipartFile> files) {
         Chat chat = chatRepository.findById(chatId)
             .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        
-        User sender = userRepository.findById(senderId)
-            .orElseThrow(() -> new EntityNotFoundException("User not found: " + senderId));
 
         Message message = new Message();
         message.setChat(chat);
@@ -287,7 +289,12 @@ public class MessageService {
         dto.setIsEdited(savedMessage.isEdited());
         dto.setIsReaded(savedMessage.isReaded());
         
-        dto.setSenderId(senderId);
+        dto.setSender(new UserResponse(
+                sender.getId(),
+                sender.getName(),
+                sender.getAvatarURL()
+        ));
+        dto.setSenderId(sender.getId());
         
         List<MessageAttachmentDTO> attachmentDTOs = savedMessage.getAttachments().stream()
             .map(attachment -> {
