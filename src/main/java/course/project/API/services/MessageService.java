@@ -185,7 +185,7 @@ public class MessageService {
                     attachmentDTO.setFileName(attachment.getOriginalFileName());
                     attachmentDTO.setFileType(attachment.getFileType());
                     attachmentDTO.setFileSize(String.valueOf(attachment.getFileSize()));
-                    attachmentDTO.setDownloadUrl("/api/attachments/" + attachment.getId());
+                    attachmentDTO.setDownloadURL("/api/chats/" + chatId + "/messages/" + message.getId() +"/attachments/" + attachment.getId());
                     return attachmentDTO;
                 })
                 .collect(Collectors.toList());
@@ -296,7 +296,7 @@ public class MessageService {
                 attachmentDTO.setFileName(attachment.getOriginalFileName());
                 attachmentDTO.setFileType(attachment.getFileType());
                 attachmentDTO.setFileSize(String.valueOf(attachment.getFileSize()));
-                attachmentDTO.setDownloadUrl("/api/attachments/" + attachment.getId());
+                attachmentDTO.setDownloadURL("/api/chats/" + chatId + "/messages/" + message.getId() +"/attachments/" + attachment.getId());
                 return attachmentDTO;
             })
             .collect(Collectors.toList());

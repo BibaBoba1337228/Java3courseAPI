@@ -33,12 +33,14 @@ public class ChatService {
     private final UserRepository userRepository;
     private final ModelMapper modelMapper;
     private static final Logger logger = LoggerFactory.getLogger(ChatService.class);
+    private final MessageRepository messageRepository;
 
     @Autowired
-    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper) {
+    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper, MessageRepository messageRepository) {
         this.chatRepository = chatRepository;
         this.userRepository = userRepository;
         this.modelMapper = modelMapper;
+        this.messageRepository = messageRepository;
     }
 
     @Transactional
@@ -78,6 +80,10 @@ public class ChatService {
         Chat savedChat = chatRepository.save(chat);
         logger.info("Создан новый чат с ID: {}", savedChat.getId());
         return modelMapper.map(savedChat, ChatDTO.class);
+    }
+
+    public Object[] getMessageAttachementFilePath(Long chatId, Long messageId, Long attachmentId){
+        return (Object[])messageRepository.findMessageAttachementFilePathByChatIdAndMessageIdAndAttachementId(chatId, messageId, attachmentId);
     }
 
     @Transactional

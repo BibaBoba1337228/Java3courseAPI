@@ -5,7 +5,7 @@ public class MessageAttachmentDTO {
     private String fileName;
     private String fileType;
     private String fileSize;
-    private String downloadUrl;
+    private String downloadURL;
 
     public MessageAttachmentDTO() {}
 
@@ -14,7 +14,7 @@ public class MessageAttachmentDTO {
         this.fileName = fileName;
         this.fileType = fileType;
         this.fileSize = fileSize;
-        this.downloadUrl = downloadUrl;
+        this.downloadURL = downloadUrl;
     }
 
     public Long getId() {
@@ -49,11 +49,11 @@ public class MessageAttachmentDTO {
         this.fileSize = fileSize;
     }
 
-    public String getDownloadUrl() {
-        return downloadUrl;
+    public String getDownloadURL() {
+        return downloadURL;
     }
 
-    public void setDownloadUrl(String downloadUrl) {
-        this.downloadUrl = downloadUrl;
+    public void setDownloadURL(String downloadUrl) {
+        this.downloadURL = downloadUrl;
     }
 }

@@ -21,4 +21,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     
     @Query("SELECT m.id, u FROM Message m JOIN m.readBy u WHERE m.id IN :messageIds")
     List<Object[]> loadReadByForMessages(@Param("messageIds") List<Long> messageIds);
+
+    @Query(value = """
+            SELECT a.file_path, a.original_file_name, a.file_type from messages m
+            inner join message_attachments a on a.message_id = m.id
+            where m.chat_id = :chatId and m.id = :messageId and a.id = :attachmentId
+            """,
+    nativeQuery = true)
+    Object findMessageAttachementFilePathByChatIdAndMessageIdAndAttachementId(@Param("chatId") Long chatId, @Param("messageId") Long messageId, @Param("attachmentId") Long attachmentId);
 } 

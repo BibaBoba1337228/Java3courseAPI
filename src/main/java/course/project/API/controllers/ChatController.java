@@ -12,6 +12,9 @@ import course.project.API.services.MessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,6 +24,11 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 
@@ -242,30 +250,65 @@ public class ChatController {
         }
     }
 
-    @PostMapping("/{chatId}/messages/{messageId}/attachments")
-    public ResponseEntity<?> uploadAttachment(
+    @PostMapping("/{chatId}/messages/with-attachments")
+    public ResponseEntity<MessageDTO> sendMessageWithAttachments(
             @PathVariable Long chatId,
-            @PathVariable Long messageId,
-            @RequestParam("file") MultipartFile file,
+            @RequestPart("content") String content,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
             @AuthenticationPrincipal User currentUser) {
         try {
             if (!chatService.isParticipant(chatId, currentUser.getId())) {
                 return ResponseEntity.status(403).build();
             }
 
-            Message message = messageService.getMessageById(messageId);
-            if (message == null || !message.getChat().getId().equals(chatId)) {
-                return ResponseEntity.notFound().build();
-            }
+            SendMessageDTO messageDTO = new SendMessageDTO();
+            messageDTO.setContent(content);
 
-            if (!message.getSender().getId().equals(currentUser.getId())) {
-                return ResponseEntity.status(403).body(new SimpleDTO("You can only attach files to your own messages"));
-            }
+            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser.getId(), messageDTO, files);
 
-            messageService.addAttachment(messageId, file, currentUser);
-            return ResponseEntity.ok(new SimpleDTO("Attachment uploaded successfully"));
+            chatWebSocketController.broadcastNewMessage(chatId, message);
+
+            return ResponseEntity.ok(message);
         } catch (Exception e) {
-            logger.error("Error uploading attachment: {}", e.getMessage());
+            logger.error("Error sending message with attachments: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @GetMapping("/{chatId}/messages/{messageId}/attachments/{attachmentId}")
+    public ResponseEntity<?> downloadAttachment(
+            @PathVariable Long chatId,
+            @PathVariable Long messageId,
+            @PathVariable Long attachmentId,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+                return ResponseEntity.status(403).build();
+            }
+            Object[] file_info = chatService.getMessageAttachementFilePath(chatId, messageId, attachmentId);
+            if (file_info == null) {
+                return ResponseEntity.badRequest().body(new SimpleDTO("Вложение не найдено"));
+            }
+            logger.info("file_info size: {}, file_info[0]: {}",file_info.length,file_info[0].toString());
+            String filePath = (String)file_info[0];
+            String fileName = (String)file_info[1];
+            String fileType = (String)file_info[2];
+
+            logger.info("filePath {}, fileName {}, fileType {}", filePath, fileName, fileType);
+
+            Path path = Paths.get(filePath);
+            if (!Files.exists(path)) {
+                return ResponseEntity.badRequest().body(new SimpleDTO("Файл не найден на диске"));
+            }
+            Resource resource = new UrlResource(path.toUri());
+
+            String encodedFilename = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .header("Content-Disposition", "attachment; filename=\"" + encodedFilename + "\"")
+                    .header("Content-Type", fileType)
+                    .body(resource);
+        } catch (Exception e) {
+            logger.error("Error getting attachment: {}", e.getMessage());
             return ResponseEntity.badRequest().body(new SimpleDTO(e.getMessage()));
         }
     }
@@ -413,29 +456,6 @@ public class ChatController {
         }
     }
 
-    @PostMapping("/{chatId}/messages/with-attachments")
-    public ResponseEntity<MessageDTO> sendMessageWithAttachments(
-            @PathVariable Long chatId,
-            @RequestPart("content") String content,
-            @RequestPart(value = "files", required = false) List<MultipartFile> files,
-            @AuthenticationPrincipal User currentUser) {
-        try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
-                return ResponseEntity.status(403).build();
-            }
 
-            SendMessageDTO messageDTO = new SendMessageDTO();
-            messageDTO.setContent(content);
-
-            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser.getId(), messageDTO, files);
-            
-            chatWebSocketController.broadcastNewMessage(chatId, message);
-            
-            return ResponseEntity.ok(message);
-        } catch (Exception e) {
-            logger.error("Error sending message with attachments: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
-    }
 
 } 
