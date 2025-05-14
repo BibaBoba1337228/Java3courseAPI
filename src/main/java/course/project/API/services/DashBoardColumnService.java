@@ -30,10 +30,7 @@ public class DashBoardColumnService {
         return dashBoardColumnRepository.findByBoardOrderByPosition(board);
     }
 
-    @Transactional(readOnly = true)
-    public List<DashBoardColumn> getColumnsByBoardOrdered(Board board) {
-        return dashBoardColumnRepository.findByBoardOrderByPosition(board);
-    }
+
 
     @Transactional(readOnly = true)
     public Optional<DashBoardColumn> getColumnById(Long columnId) {

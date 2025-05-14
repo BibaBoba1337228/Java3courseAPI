@@ -1,5 +1,7 @@
 package course.project.API.services;
 
+import course.project.API.models.Board;
+import course.project.API.models.BoardRight;
 import course.project.API.models.Project;
 import course.project.API.models.ProjectRight;
 import course.project.API.models.ProjectUserRight;
@@ -8,6 +10,7 @@ import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.ProjectUserRightRepository;
 import course.project.API.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,14 +26,17 @@ public class ProjectRightService {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final ProjectUserRightRepository projectUserRightRepository;
+    private final BoardService boardService;
 
     @Autowired
     public ProjectRightService(ProjectRepository projectRepository,
                           UserRepository userRepository,
-                          ProjectUserRightRepository projectUserRightRepository) {
+                          ProjectUserRightRepository projectUserRightRepository,
+                          @Lazy BoardService boardService) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.projectUserRightRepository = projectUserRightRepository;
+        this.boardService = boardService;
     }
 
     /**
@@ -74,6 +80,35 @@ public class ProjectRightService {
         if (projectUserRightRepository.findByProjectAndUserAndRight(project, user, right).isEmpty()) {
             project.addUserRight(user, right);
             projectRepository.save(project);
+            
+            // If the ACCESS_ALL_BOARDS right is granted, add the user to all boards in the project
+            if (right == ProjectRight.ACCESS_ALL_BOARDS) {
+                boardService.addUserToAllProjectBoards(projectId, userId);
+            }
+
+            // If MANAGE_BOARD_RIGHTS or MANAGE_ACCESS is granted, give MANAGE_RIGHTS on all boards where user is participant
+            if (right == ProjectRight.MANAGE_BOARD_RIGHTS) {
+                // Get all boards in this project
+                List<Board> projectBoards = project.getBoards();
+                
+                // For each board where user is a participant, grant MANAGE_RIGHTS
+                for (Board board : projectBoards) {
+                    if (board.getParticipants().contains(user)) {
+                        board.addUserRight(user, BoardRight.MANAGE_RIGHTS);
+                    }
+                }
+            }
+
+            if (right == ProjectRight.MANAGE_ACCESS) {
+                List<Board> projectBoards = project.getBoards();
+                
+                for (Board board : projectBoards) {
+                    if (board.getParticipants().contains(user)) {
+                        board.addUserRight(user, BoardRight.MANAGE_MEMBERS);
+                    }
+                }
+            }
+
         }
     }
     
@@ -95,6 +130,41 @@ public class ProjectRightService {
         
         project.removeUserRight(user, right);
         projectRepository.save(project);
+        
+        // If the ACCESS_ALL_BOARDS right is revoked, remove user from all boards in the project
+        if (right == ProjectRight.ACCESS_ALL_BOARDS) {
+            boardService.removeUserFromAllProjectBoards(projectId, userId);
+        }
+        
+        // If MANAGE_BOARD_RIGHTS or MANAGE_ACCESS is revoked, remove MANAGE_RIGHTS from all boards
+        if (right == ProjectRight.MANAGE_BOARD_RIGHTS) {
+            // Get all boards in this project
+            List<Board> projectBoards = project.getBoards();
+            
+            // Check if the user still has any of these rights at project level
+            boolean stillHasRights = hasProjectRight(projectId, userId, ProjectRight.MANAGE_BOARD_RIGHTS);
+            
+            // If they don't have either right at project level anymore, remove the board-level right
+            if (!stillHasRights) {
+                // For each board, remove MANAGE_RIGHTS
+                for (Board board : projectBoards) {
+                    board.removeUserRight(user, BoardRight.MANAGE_RIGHTS);
+                }
+            }
+        }
+
+        if (right == ProjectRight.MANAGE_ACCESS) {
+            // Get all boards in this project
+            List<Board> projectBoards = project.getBoards();
+            
+            boolean stillHasRights = hasProjectRight(projectId, userId, ProjectRight.MANAGE_ACCESS);
+            
+            if (!stillHasRights) {
+                for (Board board : projectBoards) {
+                    board.removeUserRight(user, BoardRight.MANAGE_MEMBERS);
+                }
+            }
+        }
     }
     
     /**
@@ -170,120 +240,11 @@ public class ProjectRightService {
         // Rights will be automatically removed by the cascade
     }
 
-    /**
-     * Grant a specific right to a user in a project by username
-     */
-    @Transactional
-    public void grantProjectRightByUsername(Long projectId, String username, ProjectRight right) {
-        try {
-            if (projectId == null) {
-                throw new IllegalArgumentException("Project ID must not be null");
-            }
-            
-            if (username == null || username.isEmpty()) {
-                throw new IllegalArgumentException("Username must not be null or empty");
-            }
-            
-            if (right == null) {
-                throw new IllegalArgumentException("Right must not be null");
-            }
-            
-            Project project = projectRepository.findById(projectId)
-                    .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-            
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found with username: " + username));
-            
-            // Print debug info
-            System.out.println("Granting right: " + right + " to user: " + username + " (ID: " + user.getId() + ") for project: " + projectId);
-            
-            // Check if user is participant
-            if (!project.getParticipants().contains(user)) {
-                project.addParticipant(user);
-            }
-            
-            // Check if right already exists
-            if (projectUserRightRepository.findByProjectAndUserAndRight(project, user, right).isEmpty()) {
-                project.addUserRight(user, right);
-                projectRepository.save(project);
-            }
-        } catch (Exception e) {
-            System.err.println("Error in grantProjectRightByUsername: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
-        }
-    }
+
     
-    /**
-     * Revoke a specific right from a user in a project by username
-     */
-    @Transactional
-    public void revokeProjectRightByUsername(Long projectId, String username, ProjectRight right) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-        
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found with username: " + username));
-        
-        // Cannot revoke rights from project owner
-        if (project.getOwner().equals(user)) {
-            throw new RuntimeException("Cannot revoke rights from project owner");
-        }
-        
-        project.removeUserRight(user, right);
-        projectRepository.save(project);
-    }
     
-    /**
-     * Get all rights for a user in a project by username
-     */
-    public Set<ProjectRight> getUserProjectRightsByUsername(Long projectId, String username) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-        
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found with username: " + username));
-        
-        // Project owner has all rights
-        if (project.getOwner().equals(user)) {
-            return new HashSet<>(Arrays.asList(ProjectRight.values()));
-        }
-        
-        // Get user's rights
-        List<ProjectUserRight> userRights = projectUserRightRepository.findByProjectAndUser(project, user);
-        return userRights.stream()
-                .map(ProjectUserRight::getRight)
-                .collect(Collectors.toSet());
-    }
     
-    /**
-     * Check if a user has a specific right in a project by username
-     */
-    public boolean hasProjectRightByUsername(Long projectId, String username, ProjectRight right) {
-        try {
-            Project project = projectRepository.findById(projectId)
-                    .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-            
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new RuntimeException("User not found with username: " + username));
-            
-            // Project owner has all rights
-            if (project.getOwner() != null && project.getOwner().getUsername().equals(username)) {
-                return true;
-            }
-            
-            // Project participant checking for VIEW_PROJECT right
-            if (right == ProjectRight.VIEW_PROJECT && project.getParticipants().contains(user)) {
-                return true;
-            }
-            
-            return project.hasRight(user, right);
-        } catch (Exception e) {
-            // Log error and gracefully handle it
-            System.err.println("Error checking project right: " + e.getMessage());
-            return false;
-        }
-    }
+
 
     /**
      * Grant all rights to a project owner

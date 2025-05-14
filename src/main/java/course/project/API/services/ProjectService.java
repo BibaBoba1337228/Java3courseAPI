@@ -5,6 +5,7 @@ import course.project.API.dto.project.ProjectWithParticipantsOwnerDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.models.Project;
 import course.project.API.models.User;
+import course.project.API.models.Board;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
 import course.project.API.repositories.InvitationRepository;
@@ -162,6 +163,10 @@ public class ProjectService {
             
             Project project = projectOpt.get();
             User user = userOpt.get();
+            
+            for (Board board : project.getBoards()) {
+                board.removeParticipant(user);
+            }
             
             project.removeParticipant(user);
 

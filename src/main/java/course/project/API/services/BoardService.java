@@ -207,6 +207,25 @@ public class BoardService {
                 // Выдаем базовое право просмотра доски
                 board.addUserRight(user, BoardRight.VIEW_BOARD);
                 
+                // Проверяем проектные права пользователя
+                boolean hasBoardRightsPermission = project.getUserRights().stream()
+                    .anyMatch(r -> r.getUser().equals(user) && 
+                               r.getRight() == ProjectRight.MANAGE_BOARD_RIGHTS);
+                
+                boolean hasAccessPermission = project.getUserRights().stream()
+                    .anyMatch(r -> r.getUser().equals(user) && 
+                               r.getRight() == ProjectRight.MANAGE_ACCESS);
+                
+                // Если у пользователя есть право MANAGE_BOARD_RIGHTS, выдаем MANAGE_RIGHTS на доске
+                if (hasBoardRightsPermission) {
+                    board.addUserRight(user, BoardRight.MANAGE_RIGHTS);
+                }
+                
+                // Если у пользователя есть право MANAGE_ACCESS, выдаем MANAGE_MEMBERS на доске
+                if (hasAccessPermission) {
+                    board.addUserRight(user, BoardRight.MANAGE_MEMBERS);
+                }
+                
                 logger.debug("Автоматически добавлен пользователь {} на доску {} из-за маркера ACCESS_ALL_BOARDS", 
                     user.getUsername(), board.getTitle());
             }
@@ -414,34 +433,6 @@ public class BoardService {
     }
 
     /**
-     * Проверяет, имеет ли пользователь доступ к доске
-     * 
-     * @param username имя пользователя
-     * @param boardId идентификатор доски
-     * @return true, если пользователь имеет доступ к доске
-     */
-    @Transactional(readOnly = true)
-    public boolean hasUserAccessToBoard(String username, Long boardId) {
-        try {
-            // Получаем пользователя и доску
-            User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден: " + username));
-            
-            Board board = boardRepository.findById(boardId)
-                .orElseThrow(() -> new NoSuchElementException("Доска не найдена: " + boardId));
-            
-            // Проверяем, является ли пользователь участником доски или владельцем проекта
-            // Участник проекта НЕ должен автоматически иметь доступ к доске
-            return board.getParticipants().contains(user) || 
-                   (board.getProject() != null && board.getProject().getOwner() != null && 
-                    board.getProject().getOwner().getId().equals(user.getId()));
-        } catch (Exception e) {
-            logger.error("Ошибка при проверке доступа пользователя к доске: {}", e.getMessage(), e);
-            return false;
-        }
-    }
-
-    /**
      * Добавляет пользователя на все доски проекта и выдает базовые права
      * 
      * @param projectId ID проекта
@@ -463,6 +454,15 @@ public class BoardService {
                 throw new IllegalArgumentException("Пользователь не является участником проекта");
             }
             
+            // Проверяем проектные права пользователя
+            boolean hasBoardRightsPermission = project.getUserRights().stream()
+                .anyMatch(r -> r.getUser().equals(user) && 
+                           r.getRight() == ProjectRight.MANAGE_BOARD_RIGHTS);
+            
+            boolean hasAccessPermission = project.getUserRights().stream()
+                .anyMatch(r -> r.getUser().equals(user) && 
+                           r.getRight() == ProjectRight.MANAGE_ACCESS);
+            
             // Получаем все доски проекта
             List<Board> boards = boardRepository.findByProjectId(projectId);
             
@@ -473,6 +473,17 @@ public class BoardService {
             for (Board board : boards) {
                 // Пропускаем, если пользователь уже участник
                 if (board.getParticipants().contains(user)) {
+                    // Даже если пользователь уже участник, обеспечиваем наличие всех нужных прав
+                    if (hasBoardRightsPermission) {
+                        board.addUserRight(user, BoardRight.MANAGE_RIGHTS);
+                    }
+                    
+                    if (hasAccessPermission) {
+                        board.addUserRight(user, BoardRight.MANAGE_MEMBERS);
+                    }
+                    
+                    // Сохраняем обновления прав
+                    boardRepository.save(board);
                     continue;
                 }
                 
@@ -481,6 +492,16 @@ public class BoardService {
                 
                 // Выдаем базовое право просмотра доски
                 board.addUserRight(user, BoardRight.VIEW_BOARD);
+                
+                // Если у пользователя есть право MANAGE_BOARD_RIGHTS, выдаем MANAGE_RIGHTS на доске
+                if (hasBoardRightsPermission) {
+                    board.addUserRight(user, BoardRight.MANAGE_RIGHTS);
+                }
+                
+                // Если у пользователя есть право MANAGE_ACCESS, выдаем MANAGE_MEMBERS на доске
+                if (hasAccessPermission) {
+                    board.addUserRight(user, BoardRight.MANAGE_MEMBERS);
+                }
                 
                 // Сохраняем доску
                 boardRepository.save(board);
@@ -496,79 +517,19 @@ public class BoardService {
     }
 
     /**
-     * Добавляет пользователя на все доски проекта по имени пользователя
-     * и устанавливает маркер ACCESS_ALL_BOARDS
-     * 
-     * @param projectId ID проекта
-     * @param username имя пользователя
-     * @return количество досок, на которые добавлен пользователь
-     */
-    @Transactional
-    public int addUserToAllProjectBoardsByUsername(Long projectId, String username) {
-        try {
-            // Проверяем существование пользователя и проекта
-            var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с именем: " + username));
-                
-            var project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new NoSuchElementException("Проект не найден с ID: " + projectId));
-            
-            // Проверяем, что пользователь является участником проекта
-            if (!project.getParticipants().contains(user) && !project.getOwner().equals(user)) {
-                throw new IllegalArgumentException("Пользователь не является участником проекта");
-            }
-            
-            // Устанавливаем маркер ACCESS_ALL_BOARDS
-            project.addUserRight(user, ProjectRight.ACCESS_ALL_BOARDS);
-            projectRepository.save(project);
-            
-            // Получаем все доски проекта
-            List<Board> boards = boardRepository.findByProjectId(projectId);
-            
-            // Счетчик добавленных досок
-            int addedCount = 0;
-            
-            // Добавляем пользователя на каждую доску
-            for (Board board : boards) {
-                // Пропускаем, если пользователь уже участник
-                if (board.getParticipants().contains(user)) {
-                    continue;
-                }
-                
-                // Добавляем пользователя как участника доски
-                board.addParticipant(user);
-                
-                // Выдаем базовое право просмотра доски
-                board.addUserRight(user, BoardRight.VIEW_BOARD);
-                
-                // Сохраняем доску
-                boardRepository.save(board);
-                addedCount++;
-            }
-            
-            logger.info("Пользователь {} добавлен на {} досок проекта {} и отмечен маркером ACCESS_ALL_BOARDS", 
-                username, addedCount, projectId);
-            return addedCount;
-        } catch (Exception e) {
-            logger.error("Ошибка при добавлении пользователя на все доски проекта: {}", e.getMessage(), e);
-            throw e;
-        }
-    }
-
-    /**
-     * Удаляет пользователя со всех досок проекта по имени пользователя
+     * Удаляет пользователя со всех досок проекта
      * и снимает маркер ACCESS_ALL_BOARDS
      * 
      * @param projectId ID проекта
-     * @param username имя пользователя
+     * @param userId ID пользователя
      * @return количество досок, с которых удален пользователь
      */
     @Transactional
-    public int removeUserFromAllProjectBoardsByUsername(Long projectId, String username) {
+    public int removeUserFromAllProjectBoards(Long projectId, Long userId) {
         try {
             // Проверяем существование пользователя и проекта
-            var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с именем: " + username));
+            var user = userRepository.findById(userId)
+                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с ID: " + userId));
                 
             var project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new NoSuchElementException("Проект не найден с ID: " + projectId));
@@ -604,7 +565,7 @@ public class BoardService {
             }
             
             logger.info("Пользователь {} удален с {} досок проекта {} и с него снят маркер ACCESS_ALL_BOARDS", 
-                username, removedCount, projectId);
+                userId, removedCount, projectId);
             return removedCount;
         } catch (Exception e) {
             logger.error("Ошибка при удалении пользователя со всех досок проекта: {}", e.getMessage(), e);

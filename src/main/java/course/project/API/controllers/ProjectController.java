@@ -87,10 +87,8 @@ public class ProjectController {
 
 
     @GetMapping("/my")
-    public List<ProjectWithParticipantsOwnerDTO> getMyProjects(Principal principal) {
-        var user = userRepository.findByUsername(principal.getName())
-            .orElseThrow(() -> new RuntimeException("User not found"));
-        return projectService.getMyProjectsWithUsers(user.getId());
+    public List<ProjectWithParticipantsOwnerDTO> getMyProjects(@AuthenticationPrincipal User currentUser) {
+        return projectService.getMyProjectsWithUsers(currentUser.getId());
     }
 
     @PostMapping
@@ -199,87 +197,7 @@ public class ProjectController {
         }
     }
     
-    /**
-     * Добавляет пользователя на все доски проекта по имени пользователя
-     * и устанавливает маркер ACCESS_ALL_BOARDS для автоматического добавления
-     * на все новые доски
-     */
-    @PostMapping("/{projectId}/boards/add-user/username/{username}")
-    public ResponseEntity<Map<String, Object>> addUserToAllProjectBoardsByUsername(
-            @PathVariable Long projectId,
-            @PathVariable String username,
-            @AuthenticationPrincipal User currentUser) {
-        
-        // Проверяем права текущего пользователя
-        boolean isOwner = projectService.isProjectOwner(projectId, currentUser.getId());
-        boolean hasManageAccess = projectRightService.hasProjectRight(
-            projectId, currentUser.getId(), ProjectRight.MANAGE_ACCESS);
-            
-        if (!isOwner && !hasManageAccess) {
-            return ResponseEntity.status(403).body(Map.of(
-                "success", false,
-                "message", "У вас нет прав на добавление пользователей на доски проекта"
-            ));
-        }
-        
-        try {
-            // Добавляем пользователя на все доски
-            int boardsCount = boardService.addUserToAllProjectBoardsByUsername(projectId, username);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("boardsCount", boardsCount);
-            response.put("message", "Пользователь " + username + " добавлен на " + boardsCount + 
-                " досок проекта и будет автоматически добавляться на все новые доски");
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                "success", false,
-                "message", e.getMessage()
-            ));
-        }
-    }
+
     
-    /**
-     * Удаляет пользователя со всех досок проекта по имени пользователя
-     * и снимает маркер ACCESS_ALL_BOARDS - пользователь больше не будет
-     * автоматически добавляться на новые доски
-     */
-    @DeleteMapping("/{projectId}/boards/remove-user/username/{username}")
-    public ResponseEntity<Map<String, Object>> removeUserFromAllProjectBoardsByUsername(
-            @PathVariable Long projectId,
-            @PathVariable String username,
-            @AuthenticationPrincipal User currentUser) {
-        
-        // Проверяем права текущего пользователя
-        boolean isOwner = projectService.isProjectOwner(projectId, currentUser.getId());
-        boolean hasManageAccess = projectRightService.hasProjectRight(
-            projectId, currentUser.getId(), ProjectRight.MANAGE_ACCESS);
-            
-        if (!isOwner && !hasManageAccess) {
-            return ResponseEntity.status(403).body(Map.of(
-                "success", false,
-                "message", "У вас нет прав на удаление пользователей с досок проекта"
-            ));
-        }
-        
-        try {
-            // Удаляем пользователя со всех досок
-            int boardsCount = boardService.removeUserFromAllProjectBoardsByUsername(projectId, username);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("boardsCount", boardsCount);
-            response.put("message", "Пользователь " + username + " удален с " + boardsCount + 
-                " досок проекта и больше не будет автоматически добавляться на новые доски");
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                "success", false,
-                "message", e.getMessage()
-            ));
-        }
-    }
+
 } 

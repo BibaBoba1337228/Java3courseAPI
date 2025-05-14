@@ -74,21 +74,7 @@ public class ProjectRightController {
         return ResponseEntity.ok(rights);
     }
     
-    @GetMapping("/api/projects/{projectId}/rights/users/username/{username}")
-    public ResponseEntity<Set<ProjectRight>> getUserRightsByUsername(
-            @PathVariable Long projectId,
-            @PathVariable String username,
-            @AuthenticationPrincipal User currentUser) {
-        
-        // Check if current user has VIEW_PROJECT right or is requesting their own rights
-        if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT) 
-                && !currentUser.getUsername().equals(username)) {
-            return ResponseEntity.status(403).body(null);
-        }
-        
-        Set<ProjectRight> rights = projectRightService.getUserProjectRightsByUsername(projectId, username);
-        return ResponseEntity.ok(rights);
-    }
+
 
     @PostMapping("/api/projects/{projectId}/rights/grant")
     public ResponseEntity<?> grantRight(
@@ -139,10 +125,7 @@ public class ProjectRightController {
             try {
                 ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
                 
-                // If username is provided, use it instead of userId
-                if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
-                    projectRightService.grantProjectRightByUsername(projectId, rightDto.getUsername(), right);
-                } else if (rightDto.getUserId() != null) {
+                if (rightDto.getUserId() != null) {
                     projectRightService.grantProjectRight(projectId, rightDto.getUserId(), right);
                 }
                 
@@ -207,10 +190,7 @@ public class ProjectRightController {
             try {
                 ProjectRight right = ProjectRight.valueOf(rightDto.getRightName());
                 
-                // If username is provided, use it instead of userId
-                if (rightDto.getUsername() != null && !rightDto.getUsername().isEmpty()) {
-                    projectRightService.revokeProjectRightByUsername(projectId, rightDto.getUsername(), right);
-                } else if (rightDto.getUserId() != null) {
+                if (rightDto.getUserId() != null) {
                     projectRightService.revokeProjectRight(projectId, rightDto.getUserId(), right);
                 }
                 

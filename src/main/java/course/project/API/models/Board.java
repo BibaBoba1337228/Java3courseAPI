@@ -166,8 +166,15 @@ public class Board {
     }
     
     public void addUserRight(User user, BoardRight right) {
-        BoardUserRight userRight = new BoardUserRight(this, user, right);
-        userRights.add(userRight);
+        // Check if right already exists for this user
+        boolean rightExists = userRights.stream()
+                .anyMatch(r -> r.getUser().equals(user) && r.getRight() == right);
+        
+        // Only add if it doesn't exist
+        if (!rightExists) {
+            BoardUserRight userRight = new BoardUserRight(this, user, right);
+            userRights.add(userRight);
+        }
     }
     
     public void removeUserRight(User user, BoardRight right) {
