@@ -5,7 +5,6 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 @Entity
@@ -17,7 +16,6 @@ public class Chat {
 
     @Column(nullable = false)
     private String name;
-
 
     @Column(name = "is_group_chat", nullable = false)
     private boolean isGroupChat;

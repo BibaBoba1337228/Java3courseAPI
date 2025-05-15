@@ -10,11 +10,7 @@ public class ChatSocketEventDTO {
     private String type;
     private Long chatId;
     private Object payload;
-    private LocalDateTime timestamp;
 
-    public ChatSocketEventDTO() {
-        this.timestamp = LocalDateTime.now();
-    }
 
     public ChatSocketEventDTO(String type, Long chatId, Object payload) {
         this.type = type;
@@ -28,6 +24,8 @@ public class ChatSocketEventDTO {
     public static final String USER_ADDED = "USER_ADDED";
     public static final String MESSAGE_DELETED = "MESSAGE_DELETED";
     public static final String MESSAGE_EDITED = "MESSAGE_EDITED";
+    public static final String MESSAGE_READED = "MESSAGE_READED";
+
 
     public String getType() {
         return type;
@@ -53,14 +51,6 @@ public class ChatSocketEventDTO {
         this.payload = payload;
     }
 
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(LocalDateTime timestamp) {
-        this.timestamp = timestamp;
-    }
-
 
     public static ChatSocketEventDTO newMessage(Long chatId, MessageDTO message) {
         return new ChatSocketEventDTO(NEW_MESSAGE, chatId, message);
@@ -84,6 +74,10 @@ public class ChatSocketEventDTO {
 
     public static ChatSocketEventDTO messageEdited(Long chatId, EditedMessageDTO message) {
         return new ChatSocketEventDTO(MESSAGE_EDITED, chatId, message);
+    }
+
+    public static ChatSocketEventDTO messageReaded(Long chatId, MessagesReadedDTO payload) {
+        return new ChatSocketEventDTO(MESSAGE_READED, chatId, payload);
     }
 
 

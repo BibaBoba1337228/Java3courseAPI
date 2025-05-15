@@ -2,10 +2,13 @@ package course.project.API.controllers;
 
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
+import course.project.API.dto.chatSocket.ChatSocketEventDTO;
 import course.project.API.models.*;
 import course.project.API.repositories.ChatRepository;
+import course.project.API.repositories.MessageRepository;
 import course.project.API.services.ChatService;
 import course.project.API.services.MessageService;
+import course.project.API.services.WebSocketService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,8 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -38,14 +40,19 @@ public class ChatController {
     private final MessageService messageService;
     private final ChatRepository chatRepository;
     private final ChatWebSocketController chatWebSocketController;
+    private final WebSocketService webSocketService;
+    private final MessageRepository messageRepository;
 
     @Autowired
-    public ChatController(ChatService chatService, MessageService messageService, ChatRepository chatRepository, 
-                          ChatWebSocketController chatWebSocketController) {
+    public ChatController(ChatService chatService, MessageService messageService, ChatRepository chatRepository,
+                          ChatWebSocketController chatWebSocketController, WebSocketService webSocketService,
+                          MessageRepository messageRepository) {
         this.chatService = chatService;
         this.messageService = messageService;
         this.chatRepository = chatRepository;
         this.chatWebSocketController = chatWebSocketController;
+        this.webSocketService = webSocketService;
+        this.messageRepository = messageRepository;
     }
 
     @PostMapping
@@ -232,14 +239,24 @@ public class ChatController {
             @RequestBody SendMessageDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+            Chat chat = chatService.getChatWithParticipants(chatId);
+            if (chat == null) {
+                return ResponseEntity.status(404).build();
+            }
+
+            if (!chat.getParticipants().contains(currentUser)) {
                 return ResponseEntity.status(403).build();
             }
 
             MessageDTO message = messageService.sendMessage(chatId, currentUser, request);
-            
-            chatWebSocketController.broadcastNewMessage(chatId, message);
-            
+            ChatDTO chatDTO = chatService.getNormalizedChat(chat, currentUser.getId());
+            message.setChat(chatDTO);
+            ChatSocketEventDTO event = chatWebSocketController.broadcastNewMessage(chatId, message);
+
+            for (User user : chat.getParticipants()) {
+                webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
+            }
+
             return ResponseEntity.ok(message);
         } catch (Exception e) {
             logger.error("Error sending message: {}", e.getMessage());
@@ -254,17 +271,24 @@ public class ChatController {
             @RequestPart(value = "files", required = false) List<MultipartFile> files,
             @AuthenticationPrincipal User currentUser) {
         try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+            Chat chat = chatService.getChatWithParticipants(chatId);
+            if (chat == null) {
+                return ResponseEntity.status(404).build();
+            }
+            if (!chat.getParticipants().contains(currentUser)) {
                 return ResponseEntity.status(403).build();
             }
 
-            SendMessageDTO messageDTO = new SendMessageDTO();
-            messageDTO.setContent(content);
 
-            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser, messageDTO, files);
-
-            chatWebSocketController.broadcastNewMessage(chatId, message);
-
+            MessageDTO message = messageService.sendMessageWithAttachments(chatId, currentUser, content, files);
+            ChatDTO chatDTO = chatService.getNormalizedChat(chat, currentUser.getId());
+            message.setChat(chatDTO);
+            ChatSocketEventDTO event = chatWebSocketController.broadcastNewMessage(chatId, message);
+            if (event != null){
+                for (User user : chat.getParticipants()) {
+                    webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
+                }
+            }
             return ResponseEntity.ok(message);
         } catch (Exception e) {
             logger.error("Error sending message with attachments: {}", e.getMessage());
@@ -363,23 +387,37 @@ public class ChatController {
         }
     }
 
-    @PostMapping("/{chatId}/messages/{messageId}/read")
-    public ResponseEntity<?> markMessageAsRead(
+    @PostMapping("/{chatId}/read")
+    public ResponseEntity<?> markMessagesAsRead(
             @PathVariable Long chatId,
-            @PathVariable Long messageId,
+            @RequestBody List<Long> messageIds,
             @AuthenticationPrincipal User currentUser) {
         try {
-            if (!chatService.isParticipant(chatId, currentUser.getId())) {
+
+            if(!chatService.isParticipant(chatId, currentUser.getId())) {
                 return ResponseEntity.status(403).build();
             }
 
-            Message message = messageService.getMessageById(messageId);
-            if (message == null || !message.getChat().getId().equals(chatId)) {
-                return ResponseEntity.notFound().build();
+            if (messageIds.isEmpty()) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Малова то сообщений будет"));
             }
+            List<Message> messages = messageRepository.findMessagesByChatIdAndIdsAndNotSentBy(chatId, messageIds, currentUser.getId());
+            if (messages.size() != messageIds.size()) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Пользователь не может читать свои же сообщения"));
+            }
+            messageRepository.batchAddMessagesReadByUser(messageIds, currentUser.getId());
 
-            messageService.markAsRead(messageId, currentUser.getId());
-            return ResponseEntity.ok(new SimpleDTO("Message marked as read"));
+            chatWebSocketController.broadcastMessagesReadedBy(chatId, messageIds, currentUser.getId());
+            Long messageId = messageRepository.findLastByChatId(chatId);
+            if (messageId != null) {
+                Optional<Message> messageOpt = messages.stream().filter(m -> Objects.equals(m.getId(), messageId)).findFirst();
+                if (messageOpt.isPresent()) {
+                    Message message = messageOpt.get();
+                    webSocketService.sendPrivateMessageToUser(message.getSender().getUsername(), new ChatSocketEventDTO(ChatSocketEventDTO.MESSAGE_READED, chatId, messageId));
+                }
+            }
+            
+            return ResponseEntity.ok(new SimpleDTO("Messages marked as read"));
         } catch (Exception e) {
             logger.error("Error marking message as read: {}", e.getMessage());
             return ResponseEntity.badRequest().body(new SimpleDTO(e.getMessage()));

@@ -22,7 +22,7 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
     @Query(value = """
         SELECT 
             c.id, c.name, c.is_group_chat, c.avatar_url, 
-            m.id, m.content, m.created_at, m.is_edited, m.is_readed,
+            m.id, m.content, m.created_at, m.is_edited,
             u.id, u.name, u.avatarurl
         FROM chats c
         JOIN chat_participants cp ON cp.chat_id = c.id
@@ -46,7 +46,8 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
         nativeQuery = true)
     Page<Object[]> findChatsWithLastMessageByUserId(@Param("userId") Long userId, Pageable pageable);
 
-    @Query("SELECT c FROM Chat c JOIN FETCH c.participants WHERE c.id = :chatId")
+    @EntityGraph(attributePaths = {"participants"})
+    @Query("SELECT c FROM Chat c WHERE c.id = :chatId")
     Chat findByIdWithParticipants(@Param("chatId") Long chatId);
 
     @EntityGraph(attributePaths = {"participants"})

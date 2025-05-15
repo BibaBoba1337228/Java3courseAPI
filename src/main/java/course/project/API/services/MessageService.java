@@ -65,21 +65,29 @@ public class MessageService {
 
     @Transactional
     public MessageDTO sendMessage(Long chatId, User currentUser, SendMessageDTO request) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+        logger.info("Беру референс");
 
+        Chat chatRef = entityManager.getReference(Chat.class, chatId);
 
         Message message = new Message();
-        message.setChat(chat);
+        message.setChat(chatRef);
         message.setSender(currentUser);
         message.setContent(request.getContent());
         message.setCreatedAt(LocalDateTime.now());
+        logger.info("Сохраняю");
 
         Message savedMessage = messageRepository.save(message);
-
-        chatRepository.save(chat);
-        MessageDTO msg = modelMapper.map(savedMessage, MessageDTO.class);
+        logger.info("Мапплю");
+        MessageDTO msg = new MessageDTO();
+        msg.setChatId(chatId);
         msg.setSenderId(currentUser.getId());
+        msg.setSender(new UserResponse(currentUser.getId(), currentUser.getName(), currentUser.getAvatarURL()));
+        msg.setSenderId(currentUser.getId());
+        msg.setContent(request.getContent());
+        msg.setCreatedAt(savedMessage.getCreatedAt());
+        msg.setId(savedMessage.getId());
+        msg.setIsEdited(false);
+
         return msg;
     }
 
@@ -125,8 +133,6 @@ public class MessageService {
     }
 
     public Page<MessageDTO> getChatMessages(Long chatId, Integer page, Integer size) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
 
         int pageNumber = page != null ? page : 0;
         int pageSize = size != null ? size : 20;
@@ -172,8 +178,7 @@ public class MessageService {
             dto.setContent(message.getContent());
             dto.setCreatedAt(message.getCreatedAt());
             dto.setIsEdited(message.isEdited());
-            dto.setIsReaded(message.isReaded());
-            
+
             if (message.getSender() != null) {
                 dto.setSenderId(message.getSender().getId());
             }
@@ -233,14 +238,13 @@ public class MessageService {
 
 
     @Transactional
-    public MessageDTO sendMessageWithAttachments(Long chatId, User sender, SendMessageDTO request, List<MultipartFile> files) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+    public MessageDTO sendMessageWithAttachments(Long chatId, User sender, String content, List<MultipartFile> files) {
+        Chat chatRef = entityManager.getReference(Chat.class, chatId);
 
         Message message = new Message();
-        message.setChat(chat);
+        message.setChat(chatRef);
         message.setSender(sender);
-        message.setContent(request.getContent());
+        message.setContent(content);
         message.setCreatedAt(LocalDateTime.now());
 
         Message savedMessage = messageRepository.save(message);
@@ -286,9 +290,8 @@ public class MessageService {
         dto.setChatId(chatId);
         dto.setContent(savedMessage.getContent());
         dto.setCreatedAt(savedMessage.getCreatedAt());
-        dto.setIsEdited(savedMessage.isEdited());
-        dto.setIsReaded(savedMessage.isReaded());
-        
+        dto.setIsEdited(false);
+
         dto.setSender(new UserResponse(
                 sender.getId(),
                 sender.getName(),
@@ -316,8 +319,6 @@ public class MessageService {
 
 
     public Page<MessageDTO> getChatMessagesWithOffset(Long chatId, Integer offset, Integer limit) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
 
         int offsetValue = offset != null ? offset : 0;
         int limitValue = limit != null ? limit : 20;

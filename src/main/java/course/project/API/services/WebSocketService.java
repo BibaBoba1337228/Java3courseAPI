@@ -42,6 +42,10 @@ public class WebSocketService {
         messagingTemplate.convertAndSendToUser(username, "/queue/private", message);
     }
 
+    public void sendPrivateMessageToUser(String username, Object event) {
+        messagingTemplate.convertAndSendToUser(username, "/queue/private", event);
+    }
+
     /**
      * Отправляет уведомление о подключении пользователя к доске
      */

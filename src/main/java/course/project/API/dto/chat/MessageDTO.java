@@ -14,12 +14,12 @@ public class MessageDTO {
     private boolean isEdited;
     private List<MessageAttachmentDTO> attachments;
     private List<Long> readByIds;
-    private boolean isReaded;
+    private ChatDTO chat;
 
     public MessageDTO() {
     }
 
-    public MessageDTO(Long id, Long chatId, UserResponse sender, String content, LocalDateTime createdAt, boolean isEdited, List<MessageAttachmentDTO> attachments, List<Long> readByIds, boolean isReaded) {
+    public MessageDTO(Long id, Long chatId, UserResponse sender, String content, LocalDateTime createdAt, boolean isEdited, List<MessageAttachmentDTO> attachments, List<Long> readByIds) {
         this.id = id;
         this.chatId = chatId;
         this.sender = sender;
@@ -29,7 +29,6 @@ public class MessageDTO {
         this.isEdited = isEdited;
         this.attachments = attachments;
         this.readByIds = readByIds;
-        this.isReaded = isReaded;
     }
 
     public Long getId() {
@@ -88,14 +87,6 @@ public class MessageDTO {
         this.attachments = attachments;
     }
 
-    public boolean isReaded() {
-        return isReaded;
-    }
-
-    public void setIsReaded(boolean readed) {
-        isReaded = readed;
-    }
-
     public List<Long> getReadByIds() {
         return readByIds;
     }
@@ -112,4 +103,11 @@ public class MessageDTO {
         this.senderId = senderId;
     }
 
+    public ChatDTO getChat() {
+        return chat;
+    }
+
+    public void setChat(ChatDTO chat) {
+        this.chat = chat;
+    }
 }

@@ -194,7 +194,7 @@ public class ChatService {
             logger.info("Processing row: length={}", row.length);
             
             // c.id, c.name, c.is_group_chat, c.avatar_url, 
-            // m.id, m.content, m.created_at, m.is_edited, m.is_readed,
+            // m.id, m.content, m.created_at, m.is_edited,
             // u.id, u.name, u.avatar_url
             
             Long chatId = (Long) row[0];
@@ -227,11 +227,10 @@ public class ChatService {
             String messageContent = row[5] != null ? (String) row[5] : null;
             java.sql.Timestamp messageCreatedAt = row[6] != null ? (java.sql.Timestamp) row[6] : null;
             boolean messageIsEdited = row[7] != null ? (boolean) row[7] : false;
-            boolean messageIsReaded = row[8] != null ? (boolean) row[8] : false;
-            
-            Long senderId = row[9] != null ? (Long) row[9] : null;
-            String senderName = row[10] != null ? (String) row[10] : null;
-            String senderAvatarUrl = row[11] != null ? (String) row[11] : null;
+
+            Long senderId = row[8] != null ? (Long) row[8] : null;
+            String senderName = row[9] != null ? (String) row[9] : null;
+            String senderAvatarUrl = row[10] != null ? (String) row[10] : null;
             
             logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}", 
                        chatId, chatName, messageId, senderId);
@@ -244,7 +243,7 @@ public class ChatService {
                         );
 
                 messageDTO = new MessageDTO(
-                        messageId, chatId, sender, messageContent, messageCreatedAt.toLocalDateTime(), messageIsEdited, new ArrayList<>(), new ArrayList<>(), messageIsReaded
+                        messageId, chatId, sender, messageContent, messageCreatedAt.toLocalDateTime(), messageIsEdited, new ArrayList<>(), new ArrayList<>()
                 );
             }
             
@@ -256,6 +255,9 @@ public class ChatService {
                 messageDTO
             );
         });
+    }
+    public Chat getChatWithParticipants(Long chatId) {
+        return chatRepository.findByIdWithParticipants(chatId);
     }
 
     public ChatWithParticipantsDTO getChatWithParticipants(Long chatId, Long currentUserId) {
@@ -302,5 +304,34 @@ public class ChatService {
 
     public User getUserById(Long userId) {
         return userRepository.findById(userId).orElse(null);
+    }
+
+    // Групповые чаты напрямую содержат аву, а личные нет, надо достать имя и аватарку юзера и поставить их на место чата
+    public ChatDTO getNormalizedChat(Chat chat, Long userId) {
+        logger.info("Нормализую чат {}", chat.getId());
+        ChatDTO chatDTO = new ChatDTO();
+        chatDTO.setId(chat.getId());
+
+        if (chat.isGroupChat()){
+            chatDTO.setName(chat.getName());
+            chatDTO.setAvatarURL(chat.getAvatarURL());
+            return chatDTO;
+        }
+
+        User companion = chat.getParticipants().stream()
+                .filter(u -> !u.getId().equals(userId))
+                .findFirst()
+                .orElse(null);
+
+        if (companion != null) {
+            chatDTO.setName(companion.getName());
+            chatDTO.setAvatarURL(companion.getAvatarURL());
+            logger.info("Personal chat, using companion name: {}", chatDTO.getName());
+        } else {
+            logger.error("Чето явно не так, в чате(" + chat.getId() + "не нашелся компаньон пользователя: " + userId);
+            throw new EntityNotFoundException("Чето явно не так, в чате(" + chat.getId() + "не нашелся компаньон пользователя: " + userId);
+        }
+
+        return chatDTO;
     }
 }

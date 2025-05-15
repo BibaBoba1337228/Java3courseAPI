@@ -2,11 +2,8 @@ package course.project.API.controllers;
 
 import course.project.API.dto.chat.EditedMessageDTO;
 import course.project.API.dto.chat.SendMessageDTO;
-import course.project.API.dto.chatSocket.ChatSocketEventDTO;
+import course.project.API.dto.chatSocket.*;
 import course.project.API.dto.chat.MessageDTO;
-import course.project.API.dto.chatSocket.MessageActionPayload;
-import course.project.API.dto.chatSocket.UserActionPayload;
-import course.project.API.dto.chatSocket.UserRoleChangedPayload;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.User;
@@ -20,6 +17,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 
+import java.util.List;
+
 @Controller
 public class ChatWebSocketController {
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketController.class);
@@ -32,9 +31,20 @@ public class ChatWebSocketController {
         this.chatService = chatService;
     }
 
-    public void broadcastNewMessage(Long chatId, MessageDTO message) {
+    public ChatSocketEventDTO broadcastNewMessage(Long chatId, MessageDTO message) {
         try {
             ChatSocketEventDTO event = ChatSocketEventDTO.newMessage(chatId, message);
+            broadcastToChatParticipants(chatId, event);
+            return event;
+        } catch (Exception e) {
+            logger.error("Error broadcasting new message for chat {}: {}", chatId, e.getMessage(), e);
+            return null;
+        }
+    }
+    public void broadcastMessagesReadedBy(Long chatId, List<Long> messageIds, Long readerId){
+        try {
+            MessagesReadedDTO payload = new MessagesReadedDTO(messageIds, readerId, chatId);
+            ChatSocketEventDTO event = ChatSocketEventDTO.messageReaded(chatId, payload);
             broadcastToChatParticipants(chatId, event);
         } catch (Exception e) {
             logger.error("Error broadcasting new message for chat {}: {}", chatId, e.getMessage(), e);

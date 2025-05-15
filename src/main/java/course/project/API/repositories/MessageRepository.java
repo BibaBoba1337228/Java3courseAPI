@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -44,4 +45,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query(value = "DELETE FROM messages WHERE id = :messageId;", nativeQuery = true)
     void deleteFullyByMessageId(@Param("messageId") Long messageId);
 
+    @EntityGraph(attributePaths = {"sender"})
+    @Query("SELECT m FROM Message m JOIN m.chat c WHERE c.id = :chatId AND m.id IN :messageIds AND m.sender.id != :userId")
+    List<Message> findMessagesByChatIdAndIdsAndNotSentBy(@Param("chatId") Long chatId, @Param("messageIds") List<Long> messageIds, @Param("userId") Long userId);
+
+    @Modifying
+    @Transactional
+    @Query(value = "INSERT IGNORE INTO message_read_by (message_id, user_id) SELECT m.id, :userId FROM messages m WHERE m.id IN :messageIds", nativeQuery = true)
+    void batchAddMessagesReadByUser(@Param("messageIds") List<Long> messageIds, @Param("userId") Long userId);
+    
+    @Query(value = "SELECT id FROM messages WHERE chat_id = :chatId ORDER BY id DESC LIMIT 1", nativeQuery = true)
+    Long findLastByChatId(@Param("chatId") Long chatId);
 }
