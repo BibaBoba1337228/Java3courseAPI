@@ -11,6 +11,7 @@ public class BoardDTO {
     private Long projectId;
     private Set<Long> participantIds;
     private List<TagDTO> tags;
+    private Double completionPercentage;
 
     public BoardDTO() {
     }
@@ -88,5 +89,13 @@ public class BoardDTO {
     
     public void setTags(List<TagDTO> tags) {
         this.tags = tags;
+    }
+    
+    public Double getCompletionPercentage() {
+        return completionPercentage;
+    }
+    
+    public void setCompletionPercentage(Double completionPercentage) {
+        this.completionPercentage = completionPercentage;
     }
 } 

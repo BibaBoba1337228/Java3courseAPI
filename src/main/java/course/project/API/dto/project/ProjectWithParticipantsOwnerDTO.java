@@ -10,6 +10,7 @@ public class ProjectWithParticipantsOwnerDTO {
     private String emoji;
     private Set<UserResponse> participants;
     private UserResponse owner;
+    private Double completionPercentage;
 
     public ProjectWithParticipantsOwnerDTO() {
     }
@@ -69,5 +70,13 @@ public class ProjectWithParticipantsOwnerDTO {
 
     public void setOwner(UserResponse owner) {
         this.owner = owner;
+    }
+    
+    public Double getCompletionPercentage() {
+        return completionPercentage;
+    }
+    
+    public void setCompletionPercentage(Double completionPercentage) {
+        this.completionPercentage = completionPercentage;
     }
 } 

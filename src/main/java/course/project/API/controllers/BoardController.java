@@ -361,7 +361,7 @@ public class BoardController {
     }
 
     @DeleteMapping("/{boardId}/columns/{columnId}")
-    public ResponseEntity<Void> deleteColumn(
+    public ResponseEntity<?> deleteColumn(
             @PathVariable Long boardId,
             @PathVariable Long columnId,
             @AuthenticationPrincipal User currentUser) {
@@ -384,17 +384,25 @@ public class BoardController {
             return ResponseEntity.status(403).build();
         }
         
-        boolean deleted = boardService.deleteColumn(boardId, columnId);
-        if (deleted) {
-            Map<String, Object> notificationPayload = new HashMap<>();
-            notificationPayload.put("columnId", columnId);
-            notificationPayload.put("initiatedBy", currentUser.getUsername());
-            webSocketService.sendMessageToBoard(boardId, "COLUMN_DELETED", notificationPayload);
+        try {
+            boolean deleted = boardService.deleteColumn(boardId, columnId);
+            if (deleted) {
+                Map<String, Object> notificationPayload = new HashMap<>();
+                notificationPayload.put("columnId", columnId);
+                notificationPayload.put("initiatedBy", currentUser.getUsername());
+                webSocketService.sendMessageToBoard(boardId, "COLUMN_DELETED", notificationPayload);
+                
+                return ResponseEntity.noContent().build();
+            }
             
-            return ResponseEntity.noContent().build();
+            return ResponseEntity.badRequest().build();
+        } catch (RuntimeException e) {
+            if (e.getMessage().contains("'Done' column cannot be deleted")) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", e.getMessage()));
+            }
+            throw e;
         }
-        
-        return ResponseEntity.badRequest().build();
     }
 
     @PutMapping("/{boardId}/columns/reorder")

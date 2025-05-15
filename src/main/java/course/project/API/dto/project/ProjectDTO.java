@@ -5,6 +5,7 @@ public class ProjectDTO {
     private String title;
     private String description;
     private String emoji;
+    private Double completionPercentage;
 
     public ProjectDTO() {
     }
@@ -46,5 +47,13 @@ public class ProjectDTO {
     
     public void setEmoji(String emoji) {
         this.emoji = emoji;
+    }
+    
+    public Double getCompletionPercentage() {
+        return completionPercentage;
+    }
+    
+    public void setCompletionPercentage(Double completionPercentage) {
+        this.completionPercentage = completionPercentage;
     }
 }

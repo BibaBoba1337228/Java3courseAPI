@@ -73,9 +73,17 @@ public class DashBoardColumnController {
     }
 
     @DeleteMapping("/{columnId}")
-    public ResponseEntity<Void> deleteColumn(@PathVariable Long columnId) {
-        columnService.deleteColumn(columnId);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> deleteColumn(@PathVariable Long columnId) {
+        try {
+            columnService.deleteColumn(columnId);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            if (e.getMessage().contains("'Done' column cannot be deleted")) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", e.getMessage()));
+            }
+            throw e;
+        }
     }
 
     @DeleteMapping("/board/{boardId}")

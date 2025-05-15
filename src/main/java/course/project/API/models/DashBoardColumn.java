@@ -31,6 +31,9 @@ public class DashBoardColumn {
     @Column
     private Integer position;
 
+    @Column
+    private Boolean isCompletionColumn = false;
+
     public DashBoardColumn() {
     }
 
@@ -89,6 +92,14 @@ public class DashBoardColumn {
 
     public void setPosition(Integer position) {
         this.position = position;
+    }
+
+    public boolean isCompletionColumn() {
+        return isCompletionColumn != null && isCompletionColumn;
+    }
+
+    public void setCompletionColumn(Boolean completionColumn) {
+        isCompletionColumn = completionColumn;
     }
 
     public void addTask(Task task) {

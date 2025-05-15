@@ -6,9 +6,12 @@ import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO
 import course.project.API.models.Project;
 import course.project.API.models.User;
 import course.project.API.models.Board;
+import course.project.API.models.DashBoardColumn;
+import course.project.API.models.Task;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
 import course.project.API.repositories.InvitationRepository;
+import course.project.API.repositories.BoardRepository;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,14 +28,16 @@ public class ProjectService {
     private final InvitationRepository invitationRepository;
     private final ModelMapper modelMapper;
     private final ProjectRightService projectRightService;
+    private final BoardRepository boardRepository;
 
     @Autowired
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper, ProjectRightService projectRightService) {
+    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper, ProjectRightService projectRightService, BoardRepository boardRepository) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.invitationRepository = invitationRepository;
         this.modelMapper = modelMapper;
         this.projectRightService = projectRightService;
+        this.boardRepository = boardRepository;
     }
 
     public List<ProjectDTO> getAllProjects() {
@@ -52,12 +57,24 @@ public class ProjectService {
     }
     public List<ProjectDTO> getMyProjects(Long userId) {
         return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
-                .stream().map(project -> modelMapper.map(project, ProjectDTO.class)).collect(Collectors.toList());
+                .stream()
+                .map(project -> {
+                    ProjectDTO dto = modelMapper.map(project, ProjectDTO.class);
+                    dto.setCompletionPercentage(calculateProjectCompletionPercentage(project.getId()));
+                    return dto;
+                })
+                .collect(Collectors.toList());
     }
 
     public List<ProjectWithParticipantsOwnerDTO> getMyProjectsWithUsers(Long userId) {
         return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
-                .stream().map(project -> modelMapper.map(project, ProjectWithParticipantsOwnerDTO.class)).collect(Collectors.toList());
+                .stream()
+                .map(project -> {
+                    ProjectWithParticipantsOwnerDTO dto = modelMapper.map(project, ProjectWithParticipantsOwnerDTO.class);
+                    dto.setCompletionPercentage(calculateProjectCompletionPercentage(project.getId()));
+                    return dto;
+                })
+                .collect(Collectors.toList());
     }
 
     @Transactional
@@ -182,6 +199,61 @@ public class ProjectService {
         return projectRepository.findById(projectId)
                 .map(project -> project.getOwner().getId().equals(userId))
                 .orElse(false);
+    }
+
+    /**
+     * Calculates the completion percentage for a project based on the average 
+     * completion percentage of all its boards
+     * 
+     * @param projectId The ID of the project to calculate completion for
+     * @return The completion percentage as a Double between 0.0 and 100.0
+     */
+    private Double calculateProjectCompletionPercentage(Long projectId) {
+        List<Board> boards = boardRepository.findByProjectId(projectId);
+        
+        if (boards.isEmpty()) {
+            return 0.0;
+        }
+        
+        double totalPercentage = 0.0;
+        
+        for (Board board : boards) {
+            totalPercentage += calculateBoardCompletionPercentage(board);
+        }
+        
+        double averagePercentage = totalPercentage / boards.size();
+        return Math.round(averagePercentage * 100.0) / 100.0;
+    }
+    
+    /**
+     * Calculates the completion percentage for a board based on tasks in completion columns
+     * compared to total tasks on the board
+     * 
+     * @param board The board to calculate completion for
+     * @return The completion percentage as a Double between 0.0 and 100.0
+     */
+    private Double calculateBoardCompletionPercentage(Board board) {
+        int totalTasks = 0;
+        int completedTasks = 0;
+        
+        for (DashBoardColumn column : board.getColumns()) {
+            int columnTaskCount = column.getTasks().size();
+            totalTasks += columnTaskCount;
+            
+            // If this column is marked as completion column, count all its tasks as completed
+            if (column.isCompletionColumn()) {
+                completedTasks += columnTaskCount;
+            }
+        }
+        
+        // Avoid division by zero
+        if (totalTasks == 0) {
+            return 0.0;
+        }
+        
+        // Calculate percentage and round to 2 decimal places
+        double percentage = (double) completedTasks / totalTasks * 100.0;
+        return Math.round(percentage * 100.0) / 100.0;
     }
 
 }

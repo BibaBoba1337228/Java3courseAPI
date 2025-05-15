@@ -66,12 +66,31 @@ public class DashBoardColumnService {
 
     @Transactional
     public void deleteColumn(Long columnId) {
-        dashBoardColumnRepository.deleteById(columnId);
+        Optional<DashBoardColumn> columnOpt = dashBoardColumnRepository.findById(columnId);
+        if (columnOpt.isPresent()) {
+            DashBoardColumn column = columnOpt.get();
+            // Prevent deletion of "Done" column
+            if ("Done".equals(column.getName())) {
+                throw new RuntimeException("The 'Done' column cannot be deleted as it contains completed tasks");
+            }
+            dashBoardColumnRepository.deleteById(columnId);
+        }
     }
 
     @Transactional
     public void deleteAllColumnsByBoard(Long boardId) {
-        dashBoardColumnRepository.deleteByBoard_Id(boardId);
+        // Get all columns
+        Board board = boardRepository.findById(boardId)
+            .orElseThrow(() -> new RuntimeException("Board not found with id: " + boardId));
+        
+        List<DashBoardColumn> columns = dashBoardColumnRepository.findByBoardOrderByPosition(board);
+        
+        // Delete all columns except the "Done" column
+        for (DashBoardColumn column : columns) {
+            if (!"Done".equals(column.getName())) {
+                dashBoardColumnRepository.delete(column);
+            }
+        }
     }
 
     @Transactional

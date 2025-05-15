@@ -13,6 +13,7 @@ public class BoardWithColumnsDTO {
     private Set<UserResponse> participants;
     private List<ColumnWithTasksDTO> columns;
     private Set<TagDTO> tags;
+    private Double completionPercentage;
     
     public BoardWithColumnsDTO() {
     }
@@ -79,6 +80,14 @@ public class BoardWithColumnsDTO {
     
     public void setTags(Set<TagDTO> tags) {
         this.tags = tags;
+    }
+    
+    public Double getCompletionPercentage() {
+        return completionPercentage;
+    }
+    
+    public void setCompletionPercentage(Double completionPercentage) {
+        this.completionPercentage = completionPercentage;
     }
 
 } 

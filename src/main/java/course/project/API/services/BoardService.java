@@ -88,6 +88,9 @@ public class BoardService {
                     boardWithParticipants.setTags(boardDTO.getTags());
                     boardWithParticipants.setParticipants(participants);
                     
+                    // Calculate and set completion percentage
+                    boardWithParticipants.setCompletionPercentage(calculateCompletionPercentage(board));
+                    
                     return boardWithParticipants;
                 })
                 .collect(Collectors.toList());
@@ -99,6 +102,10 @@ public class BoardService {
                 .map(board -> {
                     BoardDTO boardDTO = modelMapper.map(board, BoardDTO.class);
                     boardDTO.setProjectId(board.getProject().getId());
+                    
+                    // Calculate completion percentage
+                    boardDTO.setCompletionPercentage(calculateCompletionPercentage(board));
+                    
                     return boardDTO;
                 });
     }
@@ -170,6 +177,7 @@ public class BoardService {
         DashBoardColumn todoColumn = new DashBoardColumn("To Do", board, 0);
         DashBoardColumn inProgressColumn = new DashBoardColumn("In Progress", board, 1);
         DashBoardColumn doneColumn = new DashBoardColumn("Done", board, 2);
+        doneColumn.setCompletionColumn(true);
         
         dashboardColumnRepository.save(todoColumn);
         dashboardColumnRepository.save(inProgressColumn);
@@ -338,6 +346,7 @@ public class BoardService {
                             colDto.setName(column.getName());
                             colDto.setBoardId(board.getId());
                             colDto.setPosition(column.getPosition());
+                            colDto.setCompletionColumn(column.isCompletionColumn());
                             
                             // Загружаем задачи для колонки и сортируем их по позиции
                             Set<TaskDTO> tasks = column.getTasks().stream()
@@ -427,9 +436,43 @@ public class BoardService {
                         })
                         .collect(Collectors.toSet());
                     dto.setTags(tags);
+                    
+                    // Calculate and set completion percentage
+                    dto.setCompletionPercentage(calculateCompletionPercentage(board));
 
                     return dto;
                 });
+    }
+
+    /**
+     * Calculates the completion percentage for a board based on tasks in "Done" column
+     * compared to total tasks on the board
+     * 
+     * @param board The board to calculate completion for
+     * @return The completion percentage as a Double between 0.0 and 100.0
+     */
+    private Double calculateCompletionPercentage(Board board) {
+        int totalTasks = 0;
+        int completedTasks = 0;
+        
+        for (DashBoardColumn column : board.getColumns()) {
+            int columnTaskCount = column.getTasks().size();
+            totalTasks += columnTaskCount;
+            
+            // If this is the "Done" column, count all its tasks as completed
+            if ("Done".equals(column.getName())) {
+                completedTasks += columnTaskCount;
+            }
+        }
+        
+        // Avoid division by zero
+        if (totalTasks == 0) {
+            return 0.0;
+        }
+        
+        // Calculate percentage and round to 2 decimal places
+        double percentage = (double) completedTasks / totalTasks * 100.0;
+        return Math.round(percentage * 100.0) / 100.0;
     }
 
     /**
@@ -626,6 +669,11 @@ public class BoardService {
         return boardRepository.findById(boardId)
                 .flatMap(board -> dashboardColumnRepository.findById(columnId)
                         .map(column -> {
+                            // Prevent deletion of "Done" column
+                            if ("Done".equals(column.getName())) {
+                                throw new RuntimeException("The 'Done' column cannot be deleted as it contains completed tasks");
+                            }
+                            
                             board.removeColumn(column);
                             boardRepository.save(board);
                             return true;

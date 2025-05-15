@@ -8,6 +8,7 @@ public class ColumnWithTasksDTO {
     private Long boardId;
     private Integer position;
     private Set<TaskDTO> tasks;
+    private boolean isCompletionColumn;
     
     public ColumnWithTasksDTO() {
     }
@@ -50,5 +51,13 @@ public class ColumnWithTasksDTO {
     
     public void setTasks(Set<TaskDTO> tasks) {
         this.tasks = tasks;
+    }
+    
+    public boolean isCompletionColumn() {
+        return isCompletionColumn;
+    }
+    
+    public void setCompletionColumn(boolean isCompletionColumn) {
+        this.isCompletionColumn = isCompletionColumn;
     }
 } 
