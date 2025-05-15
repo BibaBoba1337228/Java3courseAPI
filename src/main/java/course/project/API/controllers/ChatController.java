@@ -3,6 +3,7 @@ package course.project.API.controllers;
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
 import course.project.API.dto.chatSocket.ChatSocketEventDTO;
+import course.project.API.dto.chatSocket.MessageReadedDTO;
 import course.project.API.models.*;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.repositories.MessageRepository;
@@ -413,10 +414,11 @@ public class ChatController {
                 Optional<Message> messageOpt = messages.stream().filter(m -> Objects.equals(m.getId(), messageId)).findFirst();
                 if (messageOpt.isPresent()) {
                     Message message = messageOpt.get();
-                    webSocketService.sendPrivateMessageToUser(message.getSender().getUsername(), new ChatSocketEventDTO(ChatSocketEventDTO.MESSAGE_READED, chatId, messageId));
+                    MessageReadedDTO payload = new MessageReadedDTO(messageId, currentUser.getId(), chatId);
+                    webSocketService.sendPrivateMessageToUser(message.getSender().getUsername(), new ChatSocketEventDTO(ChatSocketEventDTO.MESSAGE_READED, chatId, payload));
                 }
             }
-            
+
             return ResponseEntity.ok(new SimpleDTO("Messages marked as read"));
         } catch (Exception e) {
             logger.error("Error marking message as read: {}", e.getMessage());
@@ -435,7 +437,6 @@ public class ChatController {
         logger.info("Тут пока все окей: {}, {}", pageNumber, pageSize);
 
         var chatPage = chatService.getPagedChatsWithLastMessage(currentUser.getId(), pageRequest);
-        logger.info("Тут пока все окей: {}", chatPage.getContent().get(0).getId());
 
         return ResponseEntity.ok(new ChatPageDTO(chatPage.getContent(), chatPage.hasNext()));
     }

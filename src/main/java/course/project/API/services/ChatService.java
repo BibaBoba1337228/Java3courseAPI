@@ -46,7 +46,7 @@ public class ChatService {
     @Transactional
     public ChatDTO createChat(CreateChatDTO request, User currentUser) {
         logger.info("Создание чата: {}, isGroupChat: {}", request.getName(), request.isGroupChat());
-        if (request.isGroupChat() && request.getParticipantIds().size() > 1) {
+        if (!request.isGroupChat() && request.getParticipantIds().size() > 1) {
             logger.error("Кто то создает личный чат с многими пользователями");
             return null;
         }
