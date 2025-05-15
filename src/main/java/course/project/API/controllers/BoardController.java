@@ -137,7 +137,8 @@ public class BoardController {
             boardDTO.setParticipantIds(new HashSet<>());
         }
         
-
+        // Add the current user to the board participants
+        boardDTO.getParticipantIds().add(currentUser.getId());
         
         return boardService.createBoard(boardDTO)
                 .map(board -> {

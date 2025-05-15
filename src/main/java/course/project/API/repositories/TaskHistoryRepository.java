@@ -19,9 +19,4 @@ public interface TaskHistoryRepository extends JpaRepository<TaskHistory, Long> 
     
     @Query("SELECT th FROM TaskHistory th WHERE th.boardId = :boardId ORDER BY th.timestamp DESC")
     List<TaskHistory> findTaskHistoryByBoardId(@Param("boardId") Long boardId);
-    
-    @Modifying
-    @Transactional
-    @Query(value = "DELETE FROM task_history WHERE task_id = :taskId", nativeQuery = true)
-    void deleteByTaskId(@Param("taskId") Long taskId);
 } 

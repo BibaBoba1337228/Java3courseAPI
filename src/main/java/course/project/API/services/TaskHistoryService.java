@@ -109,15 +109,4 @@ public class TaskHistoryService {
     public List<TaskHistory> getTaskHistoryForBoard(Long boardId) {
         return taskHistoryRepository.findByBoardIdOrderByTimestampDesc(boardId);
     }
-    
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void deleteTaskHistory(Long taskId) {
-        try {
-            taskHistoryRepository.deleteByTaskId(taskId);
-            logger.info("Deleted task history for TaskID={}", taskId);
-        } catch (Exception e) {
-            logger.error("Failed to delete task history: {}", e.getMessage(), e);
-            throw e; // Rethrow to let calling code handle the error
-        }
-    }
 } 

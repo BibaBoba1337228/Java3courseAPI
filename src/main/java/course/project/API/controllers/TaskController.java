@@ -17,6 +17,14 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.multipart.MultipartFile;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +55,11 @@ public class TaskController {
     private final ProjectService projectService;
     private final ProjectRightService projectRightService;
     private final TaskHistoryService taskHistoryService;
+    private final AttachmentService attachmentService;
+    private final TransactionTemplate transactionTemplate;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     public TaskController(TaskService taskService, UserRepository userRepository, 
@@ -59,7 +72,9 @@ public class TaskController {
                           BoardService boardService,
                           ProjectService projectService,
                           ProjectRightService projectRightService,
-                          TaskHistoryService taskHistoryService) {
+                          TaskHistoryService taskHistoryService,
+                          AttachmentService attachmentService,
+                          PlatformTransactionManager transactionManager) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
@@ -73,10 +88,17 @@ public class TaskController {
         this.projectService = projectService;
         this.projectRightService = projectRightService;
         this.taskHistoryService = taskHistoryService;
+        this.attachmentService = attachmentService;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    // Helper method to convert Task to TaskDTO with all needed relations
+    // Обновляем метод convertToTaskDTO для возможности принудительного чтения вложений
     private TaskDTO convertToTaskDTO(Task task, Long boardId) {
+        return convertToTaskDTO(task, boardId, false);
+    }
+
+    // Перегруженный метод с возможностью явного чтения вложений
+    private TaskDTO convertToTaskDTO(Task task, Long boardId, boolean forceLoadAttachments) {
         TaskDTO taskDTO = new TaskDTO();
         taskDTO.setId(task.getId());
         taskDTO.setTitle(task.getTitle());
@@ -114,24 +136,53 @@ public class TaskController {
             .collect(Collectors.toList());
         taskDTO.setChecklist(checklistItems);
         
-        // Convert attachments to AttachmentDTO
-        List<AttachmentDTO> attachmentDTOs = task.getAttachments().stream()
-            .map(attachment -> {
-                AttachmentDTO dto = new AttachmentDTO(
-                    attachment.getId(),
-                    attachment.getFileName(),
-                    null, // Don't expose file path to client
-                    attachment.getFileType(),
-                    attachment.getFileSize(),
-                    attachment.getUploadedBy(),
-                    attachment.getUploadedAt()
-                );
-                // Set download URL
-                dto.setDownloadUrl(baseUrl + "/api/attachments/" + attachment.getId() + "/download");
-                return dto;
-            })
-            .collect(Collectors.toList());
-        taskDTO.setAttachments(attachmentDTOs);
+        // Если нужно принудительно получить вложения напрямую из БД
+        if (forceLoadAttachments) {
+            // Получаем вложения напрямую из базы
+            List<Attachment> attachments = attachmentService.getAllAttachmentsByTask(task.getId());
+            
+            // Конвертируем в DTO и устанавливаем в объект TaskDTO
+            List<AttachmentDTO> attachmentDTOs = attachments.stream()
+                .map(attachment -> {
+                    AttachmentDTO dto = new AttachmentDTO(
+                        attachment.getId(),
+                        attachment.getFileName(),
+                        null, // Don't expose file path to client
+                        attachment.getFileType(),
+                        attachment.getFileSize(),
+                        attachment.getUploadedBy(),
+                        attachment.getUploadedAt()
+                    );
+                    // Set download URL
+                    dto.setDownloadUrl(baseUrl + "/api/attachments/" + attachment.getId() + "/download");
+                    return dto;
+                })
+                .collect(Collectors.toList());
+            taskDTO.setAttachments(attachmentDTOs);
+            
+            // Логируем для отладки
+            logger.info("Принудительно загружено {} вложений для задачи {}", 
+                attachmentDTOs.size(), task.getId());
+        } else {
+            // Стандартный способ конвертации вложений
+            List<AttachmentDTO> attachmentDTOs = task.getAttachments().stream()
+                .map(attachment -> {
+                    AttachmentDTO dto = new AttachmentDTO(
+                        attachment.getId(),
+                        attachment.getFileName(),
+                        null, // Don't expose file path to client
+                        attachment.getFileType(),
+                        attachment.getFileSize(),
+                        attachment.getUploadedBy(),
+                        attachment.getUploadedAt()
+                    );
+                    // Set download URL
+                    dto.setDownloadUrl(baseUrl + "/api/attachments/" + attachment.getId() + "/download");
+                    return dto;
+                })
+                .collect(Collectors.toList());
+            taskDTO.setAttachments(attachmentDTOs);
+        }
         
         return taskDTO;
     }
@@ -396,6 +447,184 @@ public class TaskController {
         }
     }
 
+    @PostMapping(consumes = "multipart/form-data")
+    public ResponseEntity<TaskDTO> createTaskWithAttachments(
+            @RequestParam("payload") String payloadStr,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            // Convert JSON string to Map
+            ObjectMapper objectMapper = new ObjectMapper();
+            Map<String, Object> payload = objectMapper.readValue(payloadStr, new TypeReference<Map<String, Object>>() {});
+            
+            logger.info("Received task creation payload: {}", payload);
+            
+            Long columnId = safeParseLong(payload.get("columnId"));
+            if (columnId == null) {
+                logger.error("Invalid columnId in task creation payload: {}", payload.get("columnId"));
+                return ResponseEntity.badRequest().body(null);
+            }
+            
+            // Get board ID for permission check
+            DashBoardColumn column = taskService.getColumnById(columnId);
+            if (column == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Long boardId = column.getBoard().getId();
+            
+            // Check if user has CREATE_TASKS right on the board
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_TASKS)) {
+                return ResponseEntity.status(403).body(null);
+            }
+            
+            String title = safeStringValue(payload.get("title"));
+            String description = payload.containsKey("description") ? 
+                    safeStringValue(payload.get("description")) : "";
+            Integer position = payload.containsKey("position") ? 
+                    safeParseInteger(payload.get("position")) : 0;
+                    
+            // Парсим даты, если они есть
+            String startDate = payload.containsKey("startDate") ? 
+                    safeStringValue(payload.get("startDate")) : null;
+            String endDate = payload.containsKey("endDate") ? 
+                    safeStringValue(payload.get("endDate")) : null;
+                    
+            Task task;
+            
+            // Check if we have a tag ID or tag name
+            if (payload.containsKey("tagId")) {
+                Long tagId = safeParseLong(payload.get("tagId"));
+                if (tagId != null) {
+                    logger.info("Creating task with tag ID: {}", tagId);
+                        task = taskService.createTaskWithTagId(title, description, columnId, currentUser.getId(), startDate, endDate, tagId);
+                } else {
+                    logger.info("Tag ID is null or invalid, creating task without tag");
+                        task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, null, boardId);
+                }
+            } else {
+                // Парсим тег, если он есть (по имени)
+                String tagName = payload.containsKey("tags") ? 
+                        safeStringValue(payload.get("tags")) : null;
+                
+                logger.info("Processing tag: {}, boardId: {}", tagName, boardId);
+                
+                if (tagName != null && !tagName.isEmpty() && boardId != null) {
+                    logger.info("Available tags for boardId {}: {}", 
+                        boardId, tagRepository.findByBoardId(boardId));
+                }
+                
+                // Создаем задачу с использованием boardId для тегов
+                    task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, tagName, boardId);
+            }
+            
+            logger.info("Created task: {}, tag: {}", task.getId(), task.getTag());
+            
+            // Добавляем участников, если они есть
+            if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
+                List<Object> participants = (List<Object>) payload.get("participants");
+                logger.info("Processing participants: {}", participants);
+
+                for (Object participant : participants) {
+                    if (participant instanceof Number) {
+                        Long userId = ((Number) participant).longValue();
+                        userRepository.findById(userId).ifPresent(user -> {
+                            task.addParticipant(user);
+                            logger.info("Added participant by ID: {}", userId);
+                        });
+                    } else {
+                        String username = extractUsername(participant);
+                        logger.info("Extracted username: {}", username);
+
+                        if (username != null) {
+                            userRepository.findByUsername(username).ifPresent(user -> {
+                                task.addParticipant(user);
+                                logger.info("Added participant by username: {}", username);
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // Добавляем элементы чеклиста, если они есть
+            if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
+                List<Object> checklistItems = (List<Object>) payload.get("checklist");
+                logger.info("Processing checklist items: {}", checklistItems);
+                
+                for (int i = 0; i < checklistItems.size(); i++) {
+                    final int position_i = i;  // Make effectively final for lambda
+                    if (checklistItems.get(i) instanceof Map) {
+                        Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
+                        String text = safeStringValue(item.get("text"));
+                        boolean completed = item.containsKey("completed") && 
+                                          Boolean.parseBoolean(safeStringValue(item.get("completed")));
+                        
+                        logger.info("Creating checklist item: {}, completed: {}, position: {}", text, completed, position_i);
+                        ChecklistItem checklistItem = checklistItemService.createChecklistItem(task.getId(), text, position_i);
+                        
+                        if (completed) {
+                            checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
+                        }
+                    } else {
+                        logger.warn("Checklist item at position {} is not a map: {}", position_i, checklistItems.get(position_i));
+                    }
+                }
+            }
+            
+            // Save the task first to get its ID
+            Task savedTask = taskService.saveAndLogTask(task);
+            
+            // Process file attachments
+            if (files != null && !files.isEmpty()) {
+                logger.info("Processing {} file attachments", files.size());
+                for (MultipartFile file : files) {
+                    try {
+                        Attachment attachment = attachmentService.uploadAttachment(
+                            savedTask.getId(),
+                            file,
+                            currentUser.getUsername()
+                        );
+                        logger.info("Added attachment: {}", attachment.getFileName());
+                    } catch (IOException e) {
+                        logger.error("Failed to upload attachment: {}", e.getMessage(), e);
+                    }
+                }
+            }
+            
+            // Record task history in a separate transaction
+            try {
+                taskHistoryService.recordTaskCreation(currentUser, savedTask);
+            } catch (Exception e) {
+                logger.error("Failed to record task history: {}", e.getMessage(), e);
+                // We continue even if history recording fails - this shouldn't stop task creation
+            }
+            
+            // Важно: теперь используем версию с принудительной загрузкой вложений
+            TaskDTO taskDTO = convertToTaskDTO(savedTask, boardId, true);
+            
+            // Notify via WebSocket
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("id", taskDTO.getId());
+            notificationPayload.put("title", taskDTO.getTitle());
+            notificationPayload.put("description", taskDTO.getDescription());
+            notificationPayload.put("columnId", taskDTO.getColumnId());
+            notificationPayload.put("startDate", taskDTO.getStartDate());
+            notificationPayload.put("endDate", taskDTO.getEndDate());
+            notificationPayload.put("position", taskDTO.getPosition());
+            notificationPayload.put("participants", taskDTO.getParticipants());
+            notificationPayload.put("tag", taskDTO.getTag());
+            notificationPayload.put("checklist", taskDTO.getChecklist());
+            notificationPayload.put("attachments", taskDTO.getAttachments());
+            
+            webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(taskDTO);
+        } catch (Exception e) {
+            logger.error("Error creating task with attachments: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @PutMapping("/{taskId}")
     public ResponseEntity<TaskDTO> updateTask(
             @PathVariable Long taskId,
@@ -478,6 +707,105 @@ public class TaskController {
             return ResponseEntity.ok(taskDTO);
         } catch (Exception e) {
             logger.error("Error updating task: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    @PutMapping(path = "/{taskId}", consumes = "multipart/form-data")
+    public ResponseEntity<TaskDTO> updateTaskWithAttachments(
+            @PathVariable Long taskId,
+            @RequestParam("payload") String payloadStr,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            // Convert JSON string to Map
+            ObjectMapper objectMapper = new ObjectMapper();
+            Map<String, Object> payload = objectMapper.readValue(payloadStr, new TypeReference<Map<String, Object>>() {});
+            
+            // Get the task to check permissions
+            Task task = taskService.getTaskById(taskId).orElse(null);
+            if (task == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Long boardId = task.getColumn().getBoard().getId();
+            
+            // Check if user has EDIT_TASKS right on the board
+            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
+                return ResponseEntity.status(403).body(null);
+            }
+            
+            logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
+            
+            // Store the original task for history comparison
+            Task oldTask = taskService.cloneTask(task);
+            
+            // Обновляем базовую информацию о задаче
+            Task updatedTask = updateTaskBasicInfo(taskId, payload, boardId, currentUser);
+            if (updatedTask == null) {
+                return ResponseEntity.badRequest().body(null);
+            }
+            
+            // Обновляем участников задачи
+            try {
+                updateTaskParticipants(taskId, payload, currentUser);
+            } catch (Exception e) {
+                logger.error("Error updating task participants: {}", e.getMessage(), e);
+                // Не прерываем выполнение, продолжаем с другими обновлениями
+            }
+            
+            // Обновляем чеклист задачи
+            try {
+                updateTaskChecklist(taskId, payload);
+            } catch (Exception e) {
+                logger.error("Error updating task checklist: {}", e.getMessage(), e);
+                // Не прерываем выполнение при ошибке
+            }
+            
+            // Обработка обновления вложений
+            try {
+                updateTaskAttachments(taskId, payload, files, currentUser);
+            } catch (Exception e) {
+                logger.error("Error updating task attachments: {}", e.getMessage(), e);
+                // Продолжаем выполнение при ошибке обновления вложений
+            }
+            
+            // Get the latest version of the task after all updates - важно получить свежие данные из БД
+            Task latestTask = taskService.getTaskById(taskId)
+                .orElseThrow(() -> new RuntimeException("Failed to reload task after update"));
+            
+            // Record task update history in a separate transaction
+            try {
+                taskHistoryService.recordTaskUpdate(currentUser, oldTask, latestTask);
+            } catch (Exception e) {
+                logger.error("Failed to record task update history: {}", e.getMessage(), e);
+                // Continue even if history recording fails
+            }
+            
+            // Convert to TaskDTO
+            TaskDTO taskDTO = convertToTaskDTO(latestTask, boardId, true);
+            
+            // Convert TaskDTO to Map for WebSocket notification
+            Map<String, Object> notificationPayload = new HashMap<>();
+            notificationPayload.put("id", taskDTO.getId());
+            notificationPayload.put("title", taskDTO.getTitle());
+            notificationPayload.put("description", taskDTO.getDescription());
+            notificationPayload.put("columnId", taskDTO.getColumnId());
+            notificationPayload.put("startDate", taskDTO.getStartDate());
+            notificationPayload.put("endDate", taskDTO.getEndDate());
+            notificationPayload.put("position", taskDTO.getPosition());
+            notificationPayload.put("participants", taskDTO.getParticipants());
+            notificationPayload.put("tag", taskDTO.getTag());
+            notificationPayload.put("checklist", taskDTO.getChecklist());
+            notificationPayload.put("attachments", taskDTO.getAttachments());
+            notificationPayload.put("initiatedBy", currentUser.getUsername());
+            
+            // Add WebSocket notification
+            webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
+            
+            return ResponseEntity.ok(taskDTO);
+        } catch (Exception e) {
+            logger.error("Error updating task with attachments: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -677,6 +1005,68 @@ public class TaskController {
         }
     }
 
+    /**
+     * Обновляет вложения задачи - обрабатывает как новые файлы, так и удаление старых
+     */
+    @Transactional
+    protected void updateTaskAttachments(
+            Long taskId, 
+            Map<String, Object> payload, 
+            List<MultipartFile> files, 
+            User currentUser) throws IOException {
+        
+        // Обработать список существующих вложений, которые нужно сохранить
+        Set<Long> attachmentsToKeep = new HashSet<>();
+        
+        if (payload.containsKey("attachments") && payload.get("attachments") instanceof List) {
+            List<Object> attachmentsList = (List<Object>) payload.get("attachments");
+            
+            for (Object attachmentObj : attachmentsList) {
+                if (attachmentObj instanceof Map) {
+                    Map<String, Object> attachmentMap = (Map<String, Object>) attachmentObj;
+                    if (attachmentMap.containsKey("id")) {
+                        Long attachmentId = safeParseLong(attachmentMap.get("id"));
+                        if (attachmentId != null) {
+                            attachmentsToKeep.add(attachmentId);
+                        }
+                    }
+                } else if (attachmentObj instanceof Number) {
+                    Long attachmentId = ((Number) attachmentObj).longValue();
+                    attachmentsToKeep.add(attachmentId);
+                }
+            }
+        }
+        
+        // Получить текущие вложения
+        List<Attachment> existingAttachments = attachmentService.getAllAttachmentsByTask(taskId);
+        
+        // Удалить вложения, которых нет в списке для сохранения
+        for (Attachment attachment : existingAttachments) {
+            if (!attachmentsToKeep.contains(attachment.getId())) {
+                logger.info("Deleting attachment: {}", attachment.getId());
+                attachmentService.deleteAttachment(attachment.getId());
+            }
+        }
+        
+        // Добавить новые вложения, если они есть
+        if (files != null && !files.isEmpty()) {
+            logger.info("Processing {} new file attachments", files.size());
+            for (MultipartFile file : files) {
+                try {
+                    Attachment attachment = attachmentService.uploadAttachment(
+                        taskId,
+                        file,
+                        currentUser.getUsername()
+                    );
+                    logger.info("Added new attachment: {}", attachment.getFileName());
+                } catch (IOException e) {
+                    logger.error("Failed to upload attachment: {}", e.getMessage(), e);
+                    throw e;
+                }
+            }
+        }
+    }
+
     private String safeStringValue(Object obj) {
         if (obj == null) {
             return "";
@@ -744,7 +1134,7 @@ public class TaskController {
                 // Continue even if history recording fails
             }
             
-            // Delete the task (TaskService now handles deleting history records first)
+            // Delete the task (история задачи будет сохранена в базе данных)
         taskService.deleteTask(taskId);
         
         // Add WebSocket notification

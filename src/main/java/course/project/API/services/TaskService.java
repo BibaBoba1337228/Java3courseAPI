@@ -367,33 +367,21 @@ public class TaskService {
 
     @Transactional
     public void deleteTask(Long taskId) {
-        // First delete any history records associated with this task
-        try {
-            taskHistoryService.deleteTaskHistory(taskId);
-        } catch (Exception e) {
-            logger.error("Error deleting task history records: {}", e.getMessage(), e);
-            // Continue with task deletion even if history deletion fails
-        }
-        
-        // Now delete the task
+        // Больше не удаляем историю задачи - просто удаляем саму задачу
+        // История задачи останется в базе данных, так как в модели TaskHistory
+        // taskId отмечен как nullable
         taskRepository.deleteById(taskId);
+        logger.info("Task deleted with ID: {}. Task history is preserved.", taskId);
     }
 
     @Transactional
     public void deleteAllTasksByColumn(Long columnId) {
-        // First delete history records for all tasks in this column
+        // Просто удаляем задачи, не удаляя историю
         List<Task> tasksInColumn = taskRepository.findByColumnId(columnId);
+        logger.info("Deleting {} tasks from column ID: {}. Task history will be preserved.", 
+            tasksInColumn.size(), columnId);
         
-        for (Task task : tasksInColumn) {
-            try {
-                taskHistoryService.deleteTaskHistory(task.getId());
-            } catch (Exception e) {
-                logger.error("Error deleting history for task ID {}: {}", task.getId(), e.getMessage());
-                // Continue despite errors
-            }
-        }
-        
-        // Now delete the tasks
+        // Удаляем задачи
         taskRepository.deleteByColumnId(columnId);
     }
 
