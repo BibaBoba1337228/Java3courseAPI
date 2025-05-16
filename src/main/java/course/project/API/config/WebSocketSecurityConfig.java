@@ -17,6 +17,7 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
             .simpDestMatchers(
                     "/app/boards/**",
                     "/app/chat/**",
+                    "/app/call/**",
                     "/user/queue/private/**",
                     "/topic/boards/**",
                     "/topic/chat/**"

@@ -7,9 +7,10 @@ import course.project.API.repositories.TagRepository;
 import course.project.API.repositories.AttachmentRepository;
 import course.project.API.dto.board.TaskDTO;
 import course.project.API.dto.board.TagDTO;
-import course.project.API.dto.user.UserResponse;
 import course.project.API.dto.board.ChecklistItemDTO;
 import course.project.API.dto.board.AttachmentDTO;
+import course.project.API.dto.board.TaskSearchRequest;
+import course.project.API.dto.user.UserResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -1393,5 +1394,35 @@ public class TaskController {
             error.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(error);
         }
+    }
+
+    @PostMapping("/search")
+    public ResponseEntity<List<TaskDTO>> searchTasks(
+            @RequestBody TaskSearchRequest searchRequest,
+            @AuthenticationPrincipal User currentUser) {
+        
+        logger.info("Searching tasks with criteria: {}", searchRequest);
+        
+        // Perform the search
+        List<Task> tasks = taskService.searchTasks(
+            searchRequest.getSearchText(),
+            searchRequest.getProjectId(),
+            searchRequest.getBoardId(),
+            searchRequest.getTagId(),
+            searchRequest.getIsCompleted(),
+            searchRequest.getParticipantIds(),
+            searchRequest.getSortDirection()
+        );
+        
+        // Convert tasks to DTOs
+        List<TaskDTO> taskDTOs = tasks.stream()
+            .map(task -> {
+                Long boardId = task.getColumn().getBoard().getId();
+                return convertToTaskDTO(task, boardId, true);
+            })
+            .collect(Collectors.toList());
+        
+        logger.info("Returning {} tasks from search", taskDTOs.size());
+        return ResponseEntity.ok(taskDTOs);
     }
 } 

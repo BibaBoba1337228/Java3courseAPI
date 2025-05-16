@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.ArrayList;
 
 @Service
 public class TaskService {
@@ -601,5 +602,48 @@ public class TaskService {
         clone.setStartDate(original.getStartDate());
         clone.setEndDate(original.getEndDate());
         return clone;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Task> searchTasks(String searchText, Long projectId, Long boardId, 
+                                 Long tagId, Boolean isCompleted, 
+                                 List<Long> participantIds, String sortDirection) {
+        
+        logger.info("Searching tasks with criteria: searchText={}, projectId={}, boardId={}, " +
+                   "tagId={}, isCompleted={}, participantIds={}, sortDirection={}",
+                   searchText, projectId, boardId, tagId, isCompleted, participantIds, sortDirection);
+        
+        // If search text is empty, set it to null
+        if (searchText != null && searchText.trim().isEmpty()) {
+            searchText = null;
+        }
+        
+        boolean participantIdsEmpty = participantIds == null || participantIds.isEmpty();
+        
+        if (participantIds == null) {
+            participantIds = new ArrayList<>();
+        }
+        
+        // Default to ascending if invalid sort direction
+        if (sortDirection == null || (!sortDirection.equalsIgnoreCase("asc") && !sortDirection.equalsIgnoreCase("desc"))) {
+            sortDirection = "asc";
+        }
+        
+        List<Task> results;
+        
+        if (sortDirection.equalsIgnoreCase("asc")) {
+            results = taskRepository.searchTasksAsc(
+                searchText, projectId, boardId, tagId, isCompleted, 
+                participantIds, participantIdsEmpty
+            );
+        } else {
+            results = taskRepository.searchTasksDesc(
+                searchText, projectId, boardId, tagId, isCompleted, 
+                participantIds, participantIdsEmpty
+            );
+        }
+        
+        logger.info("Found {} tasks matching search criteria", results.size());
+        return results;
     }
 } 
