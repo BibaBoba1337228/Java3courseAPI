@@ -1,11 +1,6 @@
 package course.project.API.services;
 
-import course.project.API.dto.chat.ChatDTO;
-import course.project.API.dto.chat.CreateChatDTO;
-import course.project.API.dto.chat.ChatWithLastMessageDTO;
-import course.project.API.dto.chat.MessageDTO;
-import course.project.API.dto.chat.ChatWithParticipantsDTO;
-import course.project.API.dto.chat.ParticipantDTO;
+import course.project.API.dto.chat.*;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
@@ -13,6 +8,7 @@ import course.project.API.models.User;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.repositories.MessageRepository;
 import course.project.API.repositories.UserRepository;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
@@ -39,46 +35,72 @@ public class ChatService {
     private final ModelMapper modelMapper;
     private static final Logger logger = LoggerFactory.getLogger(ChatService.class);
     private final MessageRepository messageRepository;
-
+    private final EntityManager entityManager;
     @Autowired
-    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper, MessageRepository messageRepository) {
+    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper, MessageRepository messageRepository, EntityManager entityManager) {
         this.chatRepository = chatRepository;
         this.userRepository = userRepository;
         this.modelMapper = modelMapper;
         this.messageRepository = messageRepository;
+        this.entityManager = entityManager;
     }
 
     @Transactional
-    public ChatDTO createChat(CreateChatDTO request, User currentUser) {
-        logger.info("Создание чата: {}, isGroupChat: {}", request.getName(), request.isGroupChat());
-        if (!request.isGroupChat() && request.getParticipantIds().size() > 1) {
-            logger.error("Кто то создает личный чат с многими пользователями");
-            return null;
-        }
-        if (!request.isGroupChat() && request.getParticipantIds().size() == 1) {
-            Long otherUserId = request.getParticipantIds().get(0);
-            logger.info("Нашел пользователя {}", otherUserId);
-            if (chatRepository.existsPersonalChatBetweenUsers(currentUser.getId(), otherUserId) == 1) {
-                logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), otherUserId);
+    public ChatDTO createPersonalChat(Long participantId, User currentUser) {
+        logger.info("Создание персонального чата");
+        if (chatRepository.existsPersonalChatBetweenUsers(currentUser.getId(), participantId) == 1) {
+                logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), participantId);
                 return null;
-
-            }
         }
-        
+        User participant = entityManager.getReference(User.class, participantId);
+
         Chat chat = new Chat();
-        chat.setName(request.getName());
-        chat.setIsGroupChat(request.isGroupChat());
-        chat.setAvatarURL(request.getAvatarURL());
-        
+        chat.setIsGroupChat(false);
+        chat.getParticipants().add(currentUser);
+        chat.getParticipants().add(participant);
+
+        chat.getUserRoles().put(currentUser.getId(), ChatRole.MEMBER);
+        chat.getUserRoles().put(participantId, ChatRole.MEMBER);
+
+
+//        if (request.getParticipantIds() != null) {
+//            for (Long userId : request.getParticipantIds()) {
+//                User participant = userRepository.findById(userId)
+//                    .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
+//                chat.getParticipants().add(participant);
+//                chat.getUserRoles().put(userId, ChatRole.MEMBER);
+//            }
+//        }
+
+        Chat savedChat = chatRepository.save(chat);
+        logger.info("Создан новый чат с ID: {}", savedChat.getId());
+        return modelMapper.map(savedChat, ChatDTO.class);
+    }
+
+    @Transactional
+    public ChatDTO createGroupChat(CreateGroupChatDTO chatRequest, User currentUser) {
+        logger.info("Создание группового чата");
+
+        Chat chat = new Chat();
+        chat.setIsGroupChat(true);
+        chat.setName(chatRequest.getName());
         chat.getParticipants().add(currentUser);
         chat.getUserRoles().put(currentUser.getId(), ChatRole.OWNER);
 
-        if (request.getParticipantIds() != null) {
-            for (Long userId : request.getParticipantIds()) {
-                User participant = userRepository.findById(userId)
-                    .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
-                chat.getParticipants().add(participant);
-                chat.getUserRoles().put(userId, ChatRole.MEMBER);
+        if (chatRequest.getParticipantIds() != null) {
+            List<User> participants = userRepository.findUsersByIds(chatRequest.getParticipantIds());
+            logger.info("Участников: {}", chatRequest.getParticipantIds().size());
+
+            if (participants.size() != chatRequest.getParticipantIds().size()) {
+                logger.error("Не совпало число добавляемых пользователей пришло: {}, из базы взяли: {}", chatRequest.getParticipantIds().size(), participants.size());
+                return null;
+            }
+
+            for (User user : participants) {
+                logger.info("Добавляю в чат: {}", user.getId());
+
+                chat.getParticipants().add(user);
+                chat.getUserRoles().put(user.getId(), ChatRole.MEMBER);
             }
         }
 
@@ -209,11 +231,11 @@ public class ChatService {
         for (Object[] row : page) {
             logger.info("Processing row: length={}", row.length);
 
-            // c.id, c.name, c.is_group_chat, c.avatar_url,
+            // c.id, c.name, c.is_group_chat,
             // m.id, m.content, m.created_at, m.is_edited,
             // u.id, u.name, u.avatar_url, mrb.user_id
 
-            Long readedById = (Long) row[11];
+            Long readedById = (Long) row[10];
             Long chatId = (Long) row[0];
             if (dummyChat.getId() != null && dummyChat.getId().equals(chatId)) {
                 dummyChat.getLastMessage().getReadByIds().add(readedById);
@@ -224,7 +246,6 @@ public class ChatService {
             dummyChat.setId(chatId);
             dummyChat.setName((String) row[1]);
             dummyChat.setIsGroupChat((boolean) row[2]);
-            dummyChat.setAvatarURL((String) row[3]);
 
             if (!dummyChat.isGroupChat()) {
                 try {
@@ -245,14 +266,14 @@ public class ChatService {
                 }
             }
 
-            Long messageId = row[4] != null ? (Long) row[4] : null;
-            String messageContent = row[5] != null ? (String) row[5] : null;
-            java.sql.Timestamp messageCreatedAt = row[6] != null ? (java.sql.Timestamp) row[6] : null;
-            boolean messageIsEdited = row[7] != null ? (boolean) row[7] : false;
+            Long messageId = row[3] != null ? (Long) row[3] : null;
+            String messageContent = row[4] != null ? (String) row[4] : null;
+            java.sql.Timestamp messageCreatedAt = row[5] != null ? (java.sql.Timestamp) row[5] : null;
+            boolean messageIsEdited = row[6] != null ? (boolean) row[6] : false;
 
-            Long senderId = row[8] != null ? (Long) row[8] : null;
-            String senderName = row[9] != null ? (String) row[9] : null;
-            String senderAvatarUrl = row[10] != null ? (String) row[10] : null;
+            Long senderId = row[7] != null ? (Long) row[7] : null;
+            String senderName = row[8] != null ? (String) row[8] : null;
+            String senderAvatarUrl = row[9] != null ? (String) row[9] : null;
 
             logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}",
                     chatId, dummyChat.getName(), messageId, senderId);
@@ -288,8 +309,7 @@ public class ChatService {
             .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
         
         String chatName = chat.getName();
-        String chatAvatarURL = chat.getAvatarURL();
-        
+        String chatAvatarURL = null;
         if (!chat.isGroupChat()) {
             User companion = chat.getParticipants().stream()
                 .filter(u -> !u.getId().equals(currentUserId))
@@ -337,7 +357,7 @@ public class ChatService {
 
         if (chat.isGroupChat()){
             chatDTO.setName(chat.getName());
-            chatDTO.setAvatarURL(chat.getAvatarURL());
+            chatDTO.setAvatarURL(null);
             return chatDTO;
         }
 

@@ -14,14 +14,11 @@ public class Chat {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column
     private String name;
 
     @Column(name = "is_group_chat", nullable = false)
     private boolean isGroupChat;
-
-    @Column(name = "avatar_url")
-    private String avatarURL;
 
     @ManyToMany
     @JoinTable(
@@ -74,14 +71,6 @@ public class Chat {
 
     public void setIsGroupChat(boolean groupChat) {
         isGroupChat = groupChat;
-    }
-
-    public String getAvatarURL() {
-        return avatarURL;
-    }
-
-    public void setAvatarURL(String avatarURL) {
-        this.avatarURL = avatarURL;
     }
 
     public Set<User> getParticipants() {

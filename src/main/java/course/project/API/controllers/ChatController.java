@@ -56,15 +56,36 @@ public class ChatController {
         this.messageRepository = messageRepository;
     }
 
-    @PostMapping
-    public ResponseEntity<?> createChat(
-            @RequestBody CreateChatDTO request,
+
+
+    @PostMapping("/personal")
+    public ResponseEntity<?> createPersonalChat(
+            @RequestBody Long userId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            ChatDTO chat = chatService.createChat(request, currentUser);
+
+            ChatDTO chat = chatService.createPersonalChat(userId, currentUser);
             if (chat == null) {
-                return ResponseEntity.status(400).body(new SimpleDTO("Chat already exists"));
+                return ResponseEntity.status(400).body(new SimpleDTO("Такой чат уже есть"));
             }
+            return ResponseEntity.ok(chat);
+        } catch (Exception e) {
+            logger.error("Error creating chat: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/group")
+    public ResponseEntity<?> createGroupChat(
+            @RequestBody CreateGroupChatDTO request,
+            @AuthenticationPrincipal User currentUser) {
+        try {
+            ChatDTO chat = chatService.createGroupChat(request, currentUser);
+
+            if (chat == null) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Добавляются фантомные пользователи"));
+            }
+
             return ResponseEntity.ok(chat);
         } catch (Exception e) {
             logger.error("Error creating chat: {}", e.getMessage());

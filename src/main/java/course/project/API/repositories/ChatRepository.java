@@ -22,7 +22,7 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
 
     @Query(value = """
         SELECT 
-            c.id, c.name, c.is_group_chat, c.avatar_url, 
+            c.id, c.name, c.is_group_chat, 
             m.id, m.content, m.created_at, m.is_edited,
             u.id, u.name, u.avatarurl, mrb.user_id
         FROM chats c

@@ -132,8 +132,7 @@ public class AppConfig {
             destination.setId(source.getId());
             destination.setName(source.getName());
             destination.setIsGroupChat(source.isGroupChat());
-            destination.setAvatarURL(source.getAvatarURL());
-            
+
             if (source.getParticipants() != null) {
                 Set<UserResponse> participants = source.getParticipants().stream()
                     .map(user -> modelMapper.map(user, UserResponse.class))
