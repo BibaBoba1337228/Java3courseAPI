@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -23,7 +24,7 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
         SELECT 
             c.id, c.name, c.is_group_chat, c.avatar_url, 
             m.id, m.content, m.created_at, m.is_edited,
-            u.id, u.name, u.avatarurl
+            u.id, u.name, u.avatarurl, mrb.user_id
         FROM chats c
         JOIN chat_participants cp ON cp.chat_id = c.id
         LEFT JOIN LATERAL (
@@ -33,6 +34,7 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
             LIMIT 1
         ) m ON true
         LEFT JOIN users u ON m.sender_id = u.id
+        LEFT JOIN message_read_by mrb ON mrb.message_id = m.id
         WHERE cp.user_id = :userId
         ORDER BY IF(m.created_at IS NULL, 1, 0), m.created_at DESC
         """,
@@ -65,4 +67,8 @@ public interface ChatRepository extends JpaRepository<Chat, Long> {
         )
     """, nativeQuery = true)
     Long existsPersonalChatBetweenUsers(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
-} 
+
+    @EntityGraph(attributePaths = {"participants"})
+    @Query("SELECT c from Chat c WHERE c.id IN :chatIds")
+    List<Chat> findChatsByIdsWithParticipants(@Param("chatIds") List<Long> chatIds);
+}

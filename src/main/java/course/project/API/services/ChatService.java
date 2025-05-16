@@ -6,6 +6,7 @@ import course.project.API.dto.chat.ChatWithLastMessageDTO;
 import course.project.API.dto.chat.MessageDTO;
 import course.project.API.dto.chat.ChatWithParticipantsDTO;
 import course.project.API.dto.chat.ParticipantDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
 import course.project.API.models.User;
@@ -18,12 +19,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -189,24 +194,41 @@ public class ChatService {
         logger.info("Starting getPagedChatsWithLastMessage for userId: {}", userId);
         Page<Object[]> page = chatRepository.findChatsWithLastMessageByUserId(userId, pageable);
         logger.info("Query executed, processing {} results", page.getContent().size());
-        
-        return page.map(row -> {
-            logger.info("Processing row: length={}", row.length);
-            
-            // c.id, c.name, c.is_group_chat, c.avatar_url, 
-            // m.id, m.content, m.created_at, m.is_edited,
-            // u.id, u.name, u.avatar_url
-            
-            Long chatId = (Long) row[0];
-            String chatName = (String) row[1];;
-            boolean isGroupChat = (boolean) row[2];
-            String chatAvatarUrl = (String) row[3];
-            
+        Set<Long> chatIds = page.getContent().stream()
+                .map(row -> (Long) row[0])
+                .collect(Collectors.toSet());
 
-            if (!isGroupChat) {
+        Map<Long, Chat> chatMap = chatRepository.findChatsByIdsWithParticipants(new ArrayList<>(chatIds)).stream()
+                .collect(Collectors.toMap(Chat::getId, Function.identity()));
+
+        List<ChatWithLastMessageDTO> chatsWithParticipants;
+        List<ChatWithLastMessageDTO> chats = new ArrayList<ChatWithLastMessageDTO>();
+        ChatWithLastMessageDTO dummyChat = new ChatWithLastMessageDTO();
+
+
+        for (Object[] row : page) {
+            logger.info("Processing row: length={}", row.length);
+
+            // c.id, c.name, c.is_group_chat, c.avatar_url,
+            // m.id, m.content, m.created_at, m.is_edited,
+            // u.id, u.name, u.avatar_url, mrb.user_id
+
+            Long readedById = (Long) row[11];
+            Long chatId = (Long) row[0];
+            if (dummyChat.getId() != null && dummyChat.getId().equals(chatId)) {
+                dummyChat.getLastMessage().getReadByIds().add(readedById);
+                continue;
+            }
+            logger.info("Новый чатик разбираю");
+            dummyChat = new ChatWithLastMessageDTO();
+            dummyChat.setId(chatId);
+            dummyChat.setName((String) row[1]);
+            dummyChat.setIsGroupChat((boolean) row[2]);
+            dummyChat.setAvatarURL((String) row[3]);
+
+            if (!dummyChat.isGroupChat()) {
                 try {
-                    Chat chat = chatRepository.findById(chatId).get();
-                    
+                    Chat chat = chatMap.get(chatId);
 
                     User companion = chat.getParticipants().stream()
                             .filter(u -> !u.getId().equals(userId))
@@ -214,15 +236,15 @@ public class ChatService {
                             .orElse(null);
 
                     if (companion != null) {
-                        chatName = companion.getName();
-                        chatAvatarUrl = companion.getAvatarURL();
-                        logger.info("Personal chat, using companion name: {}", chatName);
+                        dummyChat.setName(companion.getName());
+                        dummyChat.setAvatarURL(companion.getAvatarURL());
+                        logger.info("Personal chat, using companion name: {}", chat.getName());
                     }
                 } catch (Exception e) {
                     logger.error("Error fetching participants for chat {}: {}", chatId, e.getMessage());
                 }
             }
-            
+
             Long messageId = row[4] != null ? (Long) row[4] : null;
             String messageContent = row[5] != null ? (String) row[5] : null;
             java.sql.Timestamp messageCreatedAt = row[6] != null ? (java.sql.Timestamp) row[6] : null;
@@ -231,31 +253,32 @@ public class ChatService {
             Long senderId = row[8] != null ? (Long) row[8] : null;
             String senderName = row[9] != null ? (String) row[9] : null;
             String senderAvatarUrl = row[10] != null ? (String) row[10] : null;
-            
-            logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}", 
-                       chatId, chatName, messageId, senderId);
-            
+
+            logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}",
+                    chatId, dummyChat.getName(), messageId, senderId);
+
             MessageDTO messageDTO = null;
             if (messageId != null) {
-                course.project.API.dto.user.UserResponse sender =
+                UserResponse sender =
                         new course.project.API.dto.user.UserResponse(
                                 senderId, senderName, senderAvatarUrl
                         );
-
+                List<Long> readedByIds = new ArrayList<>();
+                if (readedById != null) readedByIds.add(readedById);
                 messageDTO = new MessageDTO(
-                        messageId, chatId, sender, messageContent, messageCreatedAt.toLocalDateTime(), messageIsEdited, new ArrayList<>(), new ArrayList<>()
+                        messageId, chatId, sender, messageContent,
+                        messageCreatedAt.toLocalDateTime(), messageIsEdited,
+                        new ArrayList<>(), readedByIds
                 );
             }
-            
-            return new ChatWithLastMessageDTO(
-                chatId,
-                chatName,
-                isGroupChat,
-                chatAvatarUrl,
-                messageDTO
-            );
-        });
+
+            dummyChat.setLastMessage(messageDTO);
+            chats.add(dummyChat);
+        }
+
+        return new PageImpl<ChatWithLastMessageDTO>(chats, page.getPageable(), page.getTotalElements());
     }
+
     public Chat getChatWithParticipants(Long chatId) {
         return chatRepository.findByIdWithParticipants(chatId);
     }
