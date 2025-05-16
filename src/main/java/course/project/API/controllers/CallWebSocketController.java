@@ -8,6 +8,7 @@ import course.project.API.models.Chat;
 import course.project.API.models.User;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.services.CallService;
+import course.project.API.services.WebSocketService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Controller
 public class CallWebSocketController {
@@ -26,12 +29,17 @@ public class CallWebSocketController {
     private final CallService callService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatRepository chatRepository;
+    private final WebSocketService webSocketService;
     
     @Autowired
-    public CallWebSocketController(CallService callService, SimpMessagingTemplate messagingTemplate, ChatRepository chatRepository) {
+    public CallWebSocketController(CallService callService, 
+                                  SimpMessagingTemplate messagingTemplate, 
+                                  ChatRepository chatRepository,
+                                  WebSocketService webSocketService) {
         this.callService = callService;
         this.messagingTemplate = messagingTemplate;
         this.chatRepository = chatRepository;
+        this.webSocketService = webSocketService;
     }
     
     /**
@@ -46,20 +54,56 @@ public class CallWebSocketController {
             String callTypeStr = payload.get("callType").toString();
             CallType callType = CallType.valueOf(callTypeStr.toUpperCase());
             
-            CallEventDTO callEvent = callService.startCall(chatId, user.getId(), callType);
-            
-            // If this is a direct chat, immediately send offer to the recipient
-            if (callEvent.getType() == CallEventType.OFFER) {
-                String sdpOffer = payload.containsKey("sdp") ? payload.get("sdp").toString() : null;
-                
-                if (sdpOffer != null) {
-                    callService.processCallOffer(callEvent, sdpOffer);
+            // Поддержка разных форматов SDP offer
+            String sdpOffer = null;
+            if (payload.containsKey("sdp")) {
+                sdpOffer = payload.get("sdp").toString();
+                logger.info("Found SDP in 'sdp' field");
+            } else if (payload.containsKey("offer") && payload.get("offer") instanceof Map) {
+                Map<String, Object> offerObj = (Map<String, Object>) payload.get("offer");
+                if (offerObj.containsKey("sdp")) {
+                    sdpOffer = offerObj.get("sdp").toString();
+                    logger.info("Found SDP in 'offer.sdp' field");
                 }
-            } else {
-                // For group chats, broadcast a notification about the call
-                messagingTemplate.convertAndSend("/topic/chat/" + chatId, callEvent);
             }
             
+            CallEventDTO callEvent = callService.startCall(chatId, user.getId(), callType);
+            
+            // Отправляем уведомление инициатору с callId через его приватную очередь
+            // Это гарантирует, что инициатор получит callId до того, как начнет отправлять ICE кандидаты
+            CallEventDTO initiatorNotification = new CallEventDTO();
+            initiatorNotification.setType(CallEventType.CALL_NOTIFICATION);
+            initiatorNotification.setChatId(chatId);
+            initiatorNotification.setCallId(callEvent.getCallId());
+            initiatorNotification.setSenderId(user.getId());
+            initiatorNotification.setSenderName(user.getName());
+            initiatorNotification.addParticipant(user.getId(), true);
+            
+            logger.info("Sending call notification to initiator: {}", user.getName());
+            webSocketService.sendPrivateMessageToUser(
+                user.getUsername(),
+                initiatorNotification
+            );
+            
+            // If this is a direct chat, immediately send offer to the recipient
+            if (sdpOffer != null) {
+                callEvent.addToPayload("sdp", sdpOffer);
+                callService.processCallOffer(callEvent, sdpOffer);
+            } else if (callEvent.getType() == CallEventType.CALL_NOTIFICATION) {
+                // Для групповых чатов, отправляем уведомление всем участникам через приватные очереди
+                Chat chat = chatRepository.findByIdWithParticipants(chatId);
+                if (chat != null) {
+                    for (User participant : chat.getParticipants()) {
+                        if (!participant.getId().equals(user.getId())) {
+                            logger.info("Sending call notification to group member: {}", participant.getName());
+                            webSocketService.sendPrivateMessageToUser(
+                                participant.getUsername(),
+                                callEvent
+                            );
+                        }
+                    }
+                }
+            }
         } catch (Exception e) {
             logger.error("Error processing call start: {}", e.getMessage(), e);
         }
@@ -75,7 +119,23 @@ public class CallWebSocketController {
             
             Long chatId = Long.valueOf(payload.get("chatId").toString());
             Long callId = Long.valueOf(payload.get("callId").toString());
-            String sdpAnswer = payload.get("sdp").toString();
+            
+            // Поддержка двух форматов: sdp напрямую или внутри объекта answer
+            String sdpAnswer;
+            if (payload.containsKey("sdp")) {
+                sdpAnswer = payload.get("sdp").toString();
+            } else if (payload.containsKey("answer") && payload.get("answer") instanceof Map) {
+                Map<String, Object> answerObj = (Map<String, Object>) payload.get("answer");
+                if (answerObj.containsKey("sdp")) {
+                    sdpAnswer = answerObj.get("sdp").toString();
+                } else {
+                    logger.error("Invalid answer format - no SDP found in answer object");
+                    return;
+                }
+            } else {
+                logger.error("Invalid payload format - no sdp or answer object found");
+                return;
+            }
             
             // Create the call answer event
             CallEventDTO callEvent = new CallEventDTO();
@@ -103,7 +163,16 @@ public class CallWebSocketController {
             
             Long chatId = Long.valueOf(payload.get("chatId").toString());
             Long callId = Long.valueOf(payload.get("callId").toString());
-            Object iceCandidate = payload.get("candidate");
+            
+            // Поддержка разных форматов ICE кандидатов
+            Object iceCandidate;
+            if (payload.containsKey("candidate")) {
+                iceCandidate = payload.get("candidate");
+                logger.info("Found ICE candidate in root object: {}", iceCandidate);
+            } else {
+                logger.error("Invalid payload format - no candidate found in message");
+                return;
+            }
             
             // Create the ICE candidate event
             CallEventDTO callEvent = new CallEventDTO();
@@ -161,11 +230,13 @@ public class CallWebSocketController {
             callEvent.setSenderName(user.getName());
             
             // Send rejection to the initiator
-            messagingTemplate.convertAndSendToUser(
-                payload.get("initiatorName").toString(),
-                "/queue/private",
-                callEvent
-            );
+            User initiator = webSocketService.getUserById(Long.valueOf(payload.get("initiatorId").toString()));
+            if (initiator != null) {
+                webSocketService.sendPrivateMessageToUser(
+                    initiator.getUsername(),
+                    callEvent
+                );
+            }
             
             // Also remove the user from the call participants
             callService.endCall(chatId, callId, user.getId());
@@ -221,17 +292,16 @@ public class CallWebSocketController {
             ActiveCall activeCall = callService.getActiveCall(chatId);
             if (activeCall != null && activeCall.getId().equals(callId)) {
                 if (activeCall.isGroupCall()) {
-                    // For group calls, broadcast to all participants
-                    messagingTemplate.convertAndSend("/topic/chat/" + chatId, callEvent);
+                    // Для групповых звонков, используем broadcastToCallParticipantsExcept из CallService
+                    callService.broadcastMediaStatus(activeCall, callEvent, user.getId());
                 } else {
                     // For direct chats, send to the other participant
                     Chat chat = chatRepository.findByIdWithParticipants(chatId);
                     if (chat != null) {
                         for (User participant : chat.getParticipants()) {
                             if (!participant.getId().equals(user.getId())) {
-                                messagingTemplate.convertAndSendToUser(
-                                    participant.getName(),
-                                    "/queue/private",
+                                webSocketService.sendPrivateMessageToUser(
+                                    participant.getUsername(),
                                     callEvent
                                 );
                             }

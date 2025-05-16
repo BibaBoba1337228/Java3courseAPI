@@ -28,17 +28,23 @@ public class CallService {
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatRepository chatRepository;
     private final UserRepository userRepository;
+    private final WebSocketService webSocketService;
     
-    // Maps chatId to its active call
+    // Maps callId to ActiveCall - changed from chatId to callId
     private final Map<Long, ActiveCall> activeCalls = new ConcurrentHashMap<>();
+    
+    // Secondary index to quickly find calls by chatId
+    private final Map<Long, Long> chatToCallMap = new ConcurrentHashMap<>();
     
     @Autowired
     public CallService(SimpMessagingTemplate messagingTemplate,
                       ChatRepository chatRepository,
-                      UserRepository userRepository) {
+                      UserRepository userRepository,
+                      WebSocketService webSocketService) {
         this.messagingTemplate = messagingTemplate;
         this.chatRepository = chatRepository;
         this.userRepository = userRepository;
+        this.webSocketService = webSocketService;
     }
     
     /**
@@ -49,7 +55,7 @@ public class CallService {
      * @return the created call event DTO
      */
     public CallEventDTO startCall(Long chatId, Long initiatorId, CallType callType) {
-        logger.info("Starting {} call in chat {} by user {}", callType, chatId, initiatorId);
+        logger.info("[CALL] Starting {} call in chat {} by user {}", callType, chatId, initiatorId);
         
         // Get user and chat info
         User initiator = userRepository.findById(initiatorId)
@@ -63,10 +69,12 @@ public class CallService {
         boolean isGroupChat = chat.isGroupChat();
         
         // Check if there's already an active call in this chat
-        if (activeCalls.containsKey(chatId)) {
-            ActiveCall existingCall = activeCalls.get(chatId);
-            if (existingCall.hasAnyActiveParticipant()) {
-                logger.info("Call already in progress in chat {}", chatId);
+        Long existingCallId = chatToCallMap.get(chatId);
+        if (existingCallId != null) {
+            ActiveCall existingCall = activeCalls.get(existingCallId);
+            
+            if (existingCall != null && existingCall.hasAnyActiveParticipant()) {
+                logger.info("[CALL {}] Call already in progress in chat {}", existingCallId, chatId);
                 
                 // Add user to existing call if not already a participant
                 if (!existingCall.isActive(initiatorId)) {
@@ -87,10 +95,11 @@ public class CallService {
                 existingCall.getParticipants().forEach(callEvent::addParticipant);
                 
                 return callEvent;
-            } else {
+            } else if (existingCall != null) {
                 // There was a call but it has ended, replace it
-                logger.info("Replacing ended call in chat {}", chatId);
-                activeCalls.remove(chatId);
+                logger.info("[CALL {}] Replacing ended call in chat {}", existingCallId, chatId);
+                activeCalls.remove(existingCallId);
+                chatToCallMap.remove(chatId);
             }
         }
         
@@ -104,13 +113,15 @@ public class CallService {
         );
         
         // Store the call
-        activeCalls.put(chatId, newCall);
+        Long callId = newCall.getId();
+        activeCalls.put(callId, newCall);
+        chatToCallMap.put(chatId, callId);
         
         // Create the call event
         CallEventDTO callEvent = new CallEventDTO(
             isGroupChat ? CallEventType.CALL_NOTIFICATION : CallEventType.OFFER,
             chatId,
-            newCall.getId(),
+            callId,
             initiatorId,
             initiator.getName(),
             callType
@@ -119,8 +130,28 @@ public class CallService {
         // Add initiator as participant
         callEvent.addParticipant(initiatorId, true);
         
-        logger.info("Created new call: id={}, chatId={}, isGroupCall={}", 
-                    newCall.getId(), chatId, isGroupChat);
+        logger.info("[CALL {}] Created new call: chatId={}, isGroupCall={}", 
+                    callId, chatId, isGroupChat);
+        
+        // Отправить уведомление инициатору через приватную очередь, чтобы он гарантированно 
+        // получил callId до того, как начнет отправлять ICE кандидаты
+        CallEventDTO initiatorNotification = new CallEventDTO(
+            CallEventType.CALL_NOTIFICATION,
+            chatId,
+            callId,
+            initiatorId,
+            initiator.getName(),
+            callType
+        );
+        initiatorNotification.addParticipant(initiatorId, true);
+        
+        logger.info("[CALL {}] Sending call notification to initiator {}", callId, initiatorId);
+        
+        // Используем WebSocketService вместо messagingTemplate
+        webSocketService.sendPrivateMessageToUser(
+            initiator.getUsername(),
+            initiatorNotification
+        );
         
         return callEvent;
     }
@@ -133,35 +164,59 @@ public class CallService {
         Long callId = callEvent.getCallId();
         Long senderId = callEvent.getSenderId();
         
-        logger.info("Processing call offer for call {} in chat {} from user {}", 
+        logger.info("[CALL {}] Processing call offer in chat {} from user {}", 
                    callId, chatId, senderId);
         
-        // Get the chat to find the recipient
-        Chat chat = chatRepository.findByIdWithParticipants(chatId);
-        if (chat == null || chat.isGroupChat()) {
-            logger.error("Direct chat not found or is a group chat: {}", chatId);
+        // Save SDP in call notification event for both direct and group chats
+        callEvent.addToPayload("sdp", sdpOffer);
+        
+        // Get the active call and make sure the sender is added as a participant
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found for call offer", callId);
             return;
         }
         
-        // In a direct chat, find the other user
-        Optional<User> recipient = chat.getParticipants().stream()
-            .filter(user -> !user.getId().equals(senderId))
-            .findFirst();
-        
-        if (recipient.isPresent()) {
-            User recipientUser = recipient.get();
-            callEvent.addToPayload("sdp", sdpOffer);
-            
-            // Send offer to recipient
-            logger.info("Sending call offer to user {}", recipientUser.getId());
-            messagingTemplate.convertAndSendToUser(
-                recipientUser.getName(),  // Use username for user-specific messages
-                "/queue/private",
-                callEvent
-            );
-        } else {
-            logger.error("Recipient not found in chat {}", chatId);
+        // Make sure sender is added as a participant (should be already done when creating the call)
+        if (!activeCall.getParticipants().containsKey(senderId)) {
+            logger.info("[CALL {}] Adding initiator {} as participant", callId, senderId);
+            activeCall.addParticipant(senderId);
         }
+        
+        // Get the chat to find the recipient
+        Chat chat = chatRepository.findByIdWithParticipants(chatId);
+        if (chat == null) {
+            logger.error("[CALL {}] Chat not found: {}", callId, chatId);
+            return;
+        }
+        
+        if (!chat.isGroupChat()) {
+            // In a direct chat, find the other user
+            Optional<User> recipient = chat.getParticipants().stream()
+                .filter(user -> !user.getId().equals(senderId))
+                .findFirst();
+            
+            if (recipient.isPresent()) {
+                User recipientUser = recipient.get();
+                
+                // Add recipient to participants list (with inactive status initially)
+                // This will help ensure ICE candidates can be forwarded even before they answer
+                if (!activeCall.getParticipants().containsKey(recipientUser.getId())) {
+                    logger.info("[CALL {}] Adding recipient {} as potential participant", callId, recipientUser.getId());
+                    activeCall.getParticipants().put(recipientUser.getId(), false);
+                }
+                
+                // Send offer to recipient
+                logger.info("[CALL {}] Sending call offer to user {} ({})", callId, recipientUser.getId(), recipientUser.getName());
+                webSocketService.sendPrivateMessageToUser(
+                    recipientUser.getUsername(),  // Use username for user-specific messages
+                    callEvent
+                );
+            } else {
+                logger.error("[CALL {}] Recipient not found in chat {}", callId, chatId);
+            }
+        }
+        // For group chats, the controller handles broadcasting
     }
     
     /**
@@ -172,13 +227,14 @@ public class CallService {
         Long callId = callEvent.getCallId();
         Long responderId = callEvent.getSenderId();
         
-        logger.info("Processing call answer for call {} in chat {} from user {}", 
+        logger.info("[CALL {}] Processing call answer in chat {} from user {}", 
                    callId, chatId, responderId);
         
         // Get the active call
-        ActiveCall activeCall = activeCalls.get(chatId);
-        if (activeCall == null || !activeCall.getId().equals(callId)) {
-            logger.error("Active call not found: chat={}, call={}", chatId, callId);
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found. Sending CALL_ENDED to client", callId);
+            sendCallEndedEvent(callId, chatId, responderId);
             return;
         }
         
@@ -194,12 +250,21 @@ public class CallService {
             User initiator = userRepository.findById(initiatorId).orElse(null);
             
             if (initiator != null) {
-                logger.info("Sending call answer to initiator {}", initiatorId);
-                messagingTemplate.convertAndSendToUser(
-                    initiator.getName(),
-                    "/queue/private",
-                    callEvent
-                );
+                logger.info("[CALL {}] Sending call answer to initiator {} (username: {})", 
+                           callId, initiatorId, initiator.getName());
+                
+                try {
+                    webSocketService.sendPrivateMessageToUser(
+                        initiator.getUsername(),
+                        callEvent
+                    );
+                    logger.info("[CALL {}] Successfully sent answer to initiator via WebSocketService", callId);
+                } catch (Exception e) {
+                    logger.error("[CALL {}] Error sending answer to initiator: {}", 
+                                callId, e.getMessage(), e);
+                }
+            } else {
+                logger.error("[CALL {}] Initiator user with ID {} not found", callId, initiatorId);
             }
         } else {
             // For group calls, broadcast to all participants
@@ -215,15 +280,19 @@ public class CallService {
         Long callId = callEvent.getCallId();
         Long senderId = callEvent.getSenderId();
         
-        logger.info("Processing ICE candidate for call {} in chat {} from user {}", 
-                   callId, chatId, senderId);
+        logger.info("[CALL {}] Processing ICE candidate in chat {} from user {}, candidate: {}", 
+                   callId, chatId, senderId, iceCandidate);
         
         // Get the active call
-        ActiveCall activeCall = activeCalls.get(chatId);
-        if (activeCall == null || !activeCall.getId().equals(callId)) {
-            logger.error("Active call not found: chat={}, call={}", chatId, callId);
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found for ICE candidate. Sending CALL_ENDED to client", callId);
+            sendCallEndedEvent(callId, chatId, senderId);
             return;
         }
+        
+        logger.info("[CALL {}] Found active call. Group call: {}, Participants: {}", 
+                   callId, activeCall.isGroupCall(), activeCall.getParticipants());
         
         callEvent.addToPayload("candidate", iceCandidate);
         
@@ -231,22 +300,40 @@ public class CallService {
             // For direct calls, send to the other participant
             Chat chat = chatRepository.findByIdWithParticipants(chatId);
             if (chat != null) {
+                logger.info("[CALL {}] Direct call chat participants: {}", callId, 
+                         chat.getParticipants().stream()
+                            .map(u -> u.getId() + ":" + u.getName())
+                            .collect(Collectors.joining(", ")));
+                
                 // Find other participant
                 Optional<User> otherUser = chat.getParticipants().stream()
                     .filter(user -> !user.getId().equals(senderId))
                     .findFirst();
                 
                 if (otherUser.isPresent()) {
-                    logger.info("Forwarding ICE candidate to user {}", otherUser.get().getId());
-                    messagingTemplate.convertAndSendToUser(
-                        otherUser.get().getName(),
-                        "/queue/private",
+                    // Make sure other user is added as a participant
+                    if (!activeCall.getParticipants().containsKey(otherUser.get().getId())) {
+                        logger.info("[CALL {}] Adding missing participant {} to call", callId, otherUser.get().getId());
+                        activeCall.addParticipant(otherUser.get().getId());
+                    }
+                    
+                    logger.info("[CALL {}] Forwarding ICE candidate to user {} ({})", 
+                              callId, otherUser.get().getId(), otherUser.get().getName());
+                    
+                    // Используем WebSocketService вместо messagingTemplate
+                    webSocketService.sendPrivateMessageToUser(
+                        otherUser.get().getUsername(),
                         callEvent
                     );
+                } else {
+                    logger.error("[CALL {}] Could not find other participant in chat {}", callId, chatId);
                 }
+            } else {
+                logger.error("[CALL {}] Chat not found: {}", callId, chatId);
             }
         } else {
             // For group calls, send to all other participants
+            logger.info("[CALL {}] Broadcasting ICE candidate to all participants except sender", callId);
             broadcastToCallParticipantsExcept(activeCall, callEvent, senderId);
         }
     }
@@ -255,18 +342,19 @@ public class CallService {
      * Ends a call
      */
     public void endCall(Long chatId, Long callId, Long userId) {
-        logger.info("Ending call {} in chat {} by user {}", callId, chatId, userId);
+        logger.info("[CALL {}] Ending call in chat {} by user {}", callId, chatId, userId);
         
         // Get the active call
-        ActiveCall activeCall = activeCalls.get(chatId);
-        if (activeCall == null || !activeCall.getId().equals(callId)) {
-            logger.error("Active call not found: chat={}, call={}", chatId, callId);
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found. Sending CALL_ENDED to client", callId);
+            sendCallEndedEvent(callId, chatId, userId);
             return;
         }
         
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
-            logger.error("User not found: {}", userId);
+            logger.error("[CALL {}] User not found: {}", callId, userId);
             return;
         }
         
@@ -283,18 +371,17 @@ public class CallService {
                 
                 for (User participant : chat.getParticipants()) {
                     if (!participant.getId().equals(userId)) {
-                        messagingTemplate.convertAndSendToUser(
-                            participant.getName(),
-                            "/queue/private",
+                        webSocketService.sendPrivateMessageToUser(
+                            participant.getUsername(),
                             endEvent
                         );
                     }
                 }
             }
             
-            // Remove the call after a delay (could be handled by a scheduled task)
-            // For simplicity, we'll just remove it immediately
-            activeCalls.remove(chatId);
+            // Remove the call
+            activeCalls.remove(callId);
+            chatToCallMap.remove(chatId);
             
         } else {
             // For group calls, just remove the participant
@@ -303,7 +390,8 @@ public class CallService {
             // If no participants left, end the call
             if (!activeCall.hasAnyActiveParticipant()) {
                 activeCall.endCall();
-                activeCalls.remove(chatId);
+                activeCalls.remove(callId);
+                chatToCallMap.remove(chatId);
             } else {
                 // Otherwise broadcast participant left
                 CallEventDTO updateEvent = new CallEventDTO(
@@ -327,13 +415,19 @@ public class CallService {
      * Invites a user to join a group call
      */
     public void inviteToCall(Long chatId, Long callId, Long inviterId, Long inviteeId) {
-        logger.info("User {} inviting user {} to call {} in chat {}", 
-                   inviterId, inviteeId, callId, chatId);
+        logger.info("[CALL {}] User {} inviting user {} to call in chat {}", 
+                   callId, inviterId, inviteeId, chatId);
         
         // Get the active call
-        ActiveCall activeCall = activeCalls.get(chatId);
-        if (activeCall == null || !activeCall.getId().equals(callId) || !activeCall.isGroupCall()) {
-            logger.error("Active group call not found: chat={}, call={}", chatId, callId);
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found. Sending CALL_ENDED to client", callId);
+            sendCallEndedEvent(callId, chatId, inviterId);
+            return;
+        }
+        
+        if (!activeCall.isGroupCall()) {
+            logger.error("[CALL {}] Cannot invite to non-group call", callId);
             return;
         }
         
@@ -341,7 +435,7 @@ public class CallService {
         User invitee = userRepository.findById(inviteeId).orElse(null);
         
         if (inviter == null || invitee == null) {
-            logger.error("Inviter or invitee not found");
+            logger.error("[CALL {}] Inviter or invitee not found", callId);
             return;
         }
         
@@ -359,10 +453,51 @@ public class CallService {
         activeCall.getParticipants().forEach(inviteEvent::addParticipant);
         
         // Send invite to the invitee
-        messagingTemplate.convertAndSendToUser(
-            invitee.getName(),
-            "/queue/private",
+        webSocketService.sendPrivateMessageToUser(
+            invitee.getUsername(),
             inviteEvent
+        );
+    }
+    
+    /**
+     * Find an active call by callId and verify it belongs to the specified chatId
+     */
+    private ActiveCall findActiveCall(Long callId, Long chatId) {
+        ActiveCall call = activeCalls.get(callId);
+        
+        // First try to find by callId (primary lookup)
+        if (call != null && call.getChatId().equals(chatId)) {
+            return call;
+        }
+        
+        // If not found, try to find by chatId (legacy fallback)
+        Long mappedCallId = chatToCallMap.get(chatId);
+        if (mappedCallId != null) {
+            call = activeCalls.get(mappedCallId);
+            if (call != null) {
+                return call;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Send a CALL_ENDED event to a user when call is not found
+     */
+    private void sendCallEndedEvent(Long callId, Long chatId, Long userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return;
+        
+        CallEventDTO endEvent = new CallEventDTO();
+        endEvent.setType(CallEventType.CALL_ENDED);
+        endEvent.setChatId(chatId);
+        endEvent.setCallId(callId);
+        
+        // Используем WebSocketService вместо messagingTemplate
+        webSocketService.sendPrivateMessageToUser(
+            user.getUsername(),
+            endEvent
         );
     }
     
@@ -370,24 +505,39 @@ public class CallService {
      * Broadcasts a call event to all active participants
      */
     private void broadcastToCallParticipants(ActiveCall call, CallEventDTO event) {
+        logger.info("[CALL {}] Broadcasting to all participants, participants: {}", 
+                  event.getCallId(), call.getParticipants());
+        
         // Get participants who are active in the call
         Set<Long> activeParticipantIds = call.getParticipants().entrySet().stream()
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
             .collect(Collectors.toSet());
         
+        logger.info("[CALL {}] Filtered active participants: {}", event.getCallId(), activeParticipantIds);
+        
         // Get participant user records
         Set<User> activeParticipants = userRepository.findAllById(activeParticipantIds)
             .stream()
             .collect(Collectors.toSet());
         
+        logger.info("[CALL {}] Found {} user records for active participants", 
+                  event.getCallId(), activeParticipants.size());
+        
         // Send event to each participant
         for (User participant : activeParticipants) {
-            messagingTemplate.convertAndSendToUser(
-                participant.getName(),
-                "/queue/private",
+            logger.info("[CALL {}] Sending event type {} to user {} ({})", 
+                      event.getCallId(), event.getType(), participant.getId(), participant.getName());
+            
+            // Используем WebSocketService вместо messagingTemplate
+            webSocketService.sendPrivateMessageToUser(
+                participant.getUsername(),
                 event
             );
+        }
+        
+        if (activeParticipants.isEmpty()) {
+            logger.warn("[CALL {}] No active participants to send event to", event.getCallId());
         }
     }
     
@@ -395,24 +545,39 @@ public class CallService {
      * Broadcasts a call event to all active participants except one
      */
     private void broadcastToCallParticipantsExcept(ActiveCall call, CallEventDTO event, Long excludeUserId) {
+        logger.info("[CALL {}] Broadcasting to participants except user {}, all participants: {}", 
+                  event.getCallId(), excludeUserId, call.getParticipants());
+        
         // Get participants who are active in the call, excluding the specified one
         Set<Long> activeParticipantIds = call.getParticipants().entrySet().stream()
             .filter(entry -> entry.getValue() && !entry.getKey().equals(excludeUserId))
             .map(Map.Entry::getKey)
             .collect(Collectors.toSet());
         
+        logger.info("[CALL {}] Filtered active participants: {}", event.getCallId(), activeParticipantIds);
+        
         // Get participant user records
         Set<User> activeParticipants = userRepository.findAllById(activeParticipantIds)
             .stream()
             .collect(Collectors.toSet());
         
+        logger.info("[CALL {}] Found {} user records for active participants", 
+                  event.getCallId(), activeParticipants.size());
+        
         // Send event to each participant
         for (User participant : activeParticipants) {
-            messagingTemplate.convertAndSendToUser(
-                participant.getName(),
-                "/queue/private",
+            logger.info("[CALL {}] Sending event type {} to user {} ({})", 
+                      event.getCallId(), event.getType(), participant.getId(), participant.getName());
+            
+            // Используем WebSocketService вместо messagingTemplate
+            webSocketService.sendPrivateMessageToUser(
+                participant.getUsername(),
                 event
             );
+        }
+        
+        if (activeParticipants.isEmpty()) {
+            logger.warn("[CALL {}] No active participants to send event to", event.getCallId());
         }
     }
     
@@ -424,9 +589,31 @@ public class CallService {
     }
     
     /**
-     * Gets a specific active call
+     * Gets a specific active call by chatId
      */
     public ActiveCall getActiveCall(Long chatId) {
-        return activeCalls.get(chatId);
+        Long callId = chatToCallMap.get(chatId);
+        if (callId != null) {
+            return activeCalls.get(callId);
+        }
+        return null;
+    }
+    
+    /**
+     * Gets a specific active call by callId
+     */
+    public ActiveCall getActiveCallById(Long callId) {
+        return activeCalls.get(callId);
+    }
+    
+    /**
+     * Broadcasts a media status event to all participants except the sender
+     */
+    public void broadcastMediaStatus(ActiveCall call, CallEventDTO event, Long excludeUserId) {
+        logger.info("[CALL {}] Broadcasting media status to participants except user {}", 
+                  event.getCallId(), excludeUserId);
+        
+        // Используем существующий метод для рассылки всем участникам, кроме отправителя
+        broadcastToCallParticipantsExcept(call, event, excludeUserId);
     }
 } 

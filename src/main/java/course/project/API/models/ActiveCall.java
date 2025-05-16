@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Random;
 
 /**
  * Represents an active call session (not persisted to database)
@@ -23,7 +24,10 @@ public class ActiveCall {
     private Map<Long, Boolean> participants; // userId -> active status
 
     public ActiveCall() {
-        this.id = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE; // Generate positive random ID
+        // Генерация короткого, безопасного для JavaScript ID 
+        // JavaScript имеет точность до 53 бит (Number.MAX_SAFE_INTEGER = 9007199254740991)
+        // Используем 6-значное число, которое гарантированно не будет искажаться в JavaScript
+        this.id = Long.valueOf(Math.abs(new Random().nextInt(900000) + 100000)); // Генерируем ID от 100000 до 999999
         this.startTime = LocalDateTime.now();
         this.participants = new ConcurrentHashMap<>();
     }

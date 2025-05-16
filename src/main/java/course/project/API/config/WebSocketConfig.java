@@ -47,20 +47,38 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.interceptors(new ChannelInterceptor() {
             @Override
             public Message<?> preSend(Message<?> message, MessageChannel channel) {
-                logger.info("getting StompHeaderAccessor");
-
                 StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
                 
-                if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
-                    logger.info("Processing CONNECT command in WebSocket interceptor");
+                if (accessor != null) {
+                    logger.info("WebSocket message type: {}, command: {}", message.getClass().getSimpleName(), accessor.getCommand());
                     
-                    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-                    
-                    if (authentication != null && authentication.isAuthenticated()) {
-                        logger.info("Found authenticated user: {}", authentication.getName());
-                        accessor.setUser(authentication);
-                    } else {
-                        logger.warn("No authenticated user found for WebSocket connection");
+                    if (StompCommand.CONNECT.equals(accessor.getCommand())) {
+                        logger.info("Processing CONNECT command in WebSocket interceptor");
+                        
+                        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                        
+                        if (authentication != null && authentication.isAuthenticated()) {
+                            logger.info("Found authenticated user: {}, principal type: {}", 
+                                     authentication.getName(), 
+                                     authentication.getPrincipal().getClass().getSimpleName());
+                            accessor.setUser(authentication);
+                        } else {
+                            logger.warn("No authenticated user found for WebSocket connection");
+                        }
+                    } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+                        logger.info("User subscribing to destination: {}", accessor.getDestination());
+                        if (accessor.getUser() != null) {
+                            logger.info("Subscription from user: {}", accessor.getUser().getName());
+                        } else {
+                            logger.warn("Subscription without user information");
+                        }
+                    } else if (StompCommand.SEND.equals(accessor.getCommand())) {
+                        logger.info("User sending message to destination: {}", accessor.getDestination());
+                        if (accessor.getUser() != null) {
+                            logger.info("Message from user: {}", accessor.getUser().getName());
+                        } else {
+                            logger.warn("Message without user information");
+                        }
                     }
                 }
                 
