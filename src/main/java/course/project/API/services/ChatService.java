@@ -20,10 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -46,14 +43,17 @@ public class ChatService {
     }
 
     @Transactional
-    public ChatDTO createPersonalChat(Long participantId, User currentUser) {
+    public WrapperChatWithLastMessageDTOForController createPersonalChat(Long participantId, User currentUser) {
         logger.info("Создание персонального чата");
         if (chatRepository.existsPersonalChatBetweenUsers(currentUser.getId(), participantId) == 1) {
                 logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), participantId);
                 return null;
         }
-        User participant = entityManager.getReference(User.class, participantId);
-
+        Optional<User> participantOpt = userRepository.findById(participantId);
+        if (participantOpt.isEmpty()) {
+            return null;
+        }
+        User participant = participantOpt.get();
         Chat chat = new Chat();
         chat.setIsGroupChat(false);
         chat.getParticipants().add(currentUser);
@@ -62,23 +62,22 @@ public class ChatService {
         chat.getUserRoles().put(currentUser.getId(), ChatRole.MEMBER);
         chat.getUserRoles().put(participantId, ChatRole.MEMBER);
 
-
-//        if (request.getParticipantIds() != null) {
-//            for (Long userId : request.getParticipantIds()) {
-//                User participant = userRepository.findById(userId)
-//                    .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
-//                chat.getParticipants().add(participant);
-//                chat.getUserRoles().put(userId, ChatRole.MEMBER);
-//            }
-//        }
-
         Chat savedChat = chatRepository.save(chat);
         logger.info("Создан новый чат с ID: {}", savedChat.getId());
-        return modelMapper.map(savedChat, ChatDTO.class);
+        ChatWithLastMessageDTO createdChat = new ChatWithLastMessageDTO(
+                chat.getId(),
+                participant.getName(),
+                false,
+                participant.getAvatarURL(),
+                null
+        );
+        List<User> users = new ArrayList<>();
+        users.add(participant);
+        return new WrapperChatWithLastMessageDTOForController(createdChat, users);
     }
 
     @Transactional
-    public ChatDTO createGroupChat(CreateGroupChatDTO chatRequest, User currentUser) {
+    public WrapperChatWithLastMessageDTOForController createGroupChat(CreateGroupChatDTO chatRequest, User currentUser) {
         logger.info("Создание группового чата");
 
         Chat chat = new Chat();
@@ -86,6 +85,7 @@ public class ChatService {
         chat.setName(chatRequest.getName());
         chat.getParticipants().add(currentUser);
         chat.getUserRoles().put(currentUser.getId(), ChatRole.OWNER);
+        List<User> users = new ArrayList<>(); // Для ответа
 
         if (chatRequest.getParticipantIds() != null) {
             List<User> participants = userRepository.findUsersByIds(chatRequest.getParticipantIds());
@@ -98,7 +98,7 @@ public class ChatService {
 
             for (User user : participants) {
                 logger.info("Добавляю в чат: {}", user.getId());
-
+                users.add(user);
                 chat.getParticipants().add(user);
                 chat.getUserRoles().put(user.getId(), ChatRole.MEMBER);
             }
@@ -106,7 +106,15 @@ public class ChatService {
 
         Chat savedChat = chatRepository.save(chat);
         logger.info("Создан новый чат с ID: {}", savedChat.getId());
-        return modelMapper.map(savedChat, ChatDTO.class);
+        ChatWithLastMessageDTO createdChat = new ChatWithLastMessageDTO(
+                chat.getId(),
+                chat.getName(),
+                true,
+                null,
+                null
+        );
+
+        return new WrapperChatWithLastMessageDTOForController(createdChat, users);
     }
 
     public Object[] getMessageAttachementFilePath(Long chatId, Long messageId, Long attachmentId){
@@ -229,7 +237,7 @@ public class ChatService {
 
 
         for (Object[] row : page) {
-            logger.info("Processing row: length={}", row.length);
+//            logger.info("Processing row: length={}", row.length);
 
             // c.id, c.name, c.is_group_chat,
             // m.id, m.content, m.created_at, m.is_edited,
@@ -241,7 +249,7 @@ public class ChatService {
                 dummyChat.getLastMessage().getReadByIds().add(readedById);
                 continue;
             }
-            logger.info("Новый чатик разбираю");
+//            logger.info("Новый чатик разбираю");
             dummyChat = new ChatWithLastMessageDTO();
             dummyChat.setId(chatId);
             dummyChat.setName((String) row[1]);
@@ -259,10 +267,10 @@ public class ChatService {
                     if (companion != null) {
                         dummyChat.setName(companion.getName());
                         dummyChat.setAvatarURL(companion.getAvatarURL());
-                        logger.info("Personal chat, using companion name: {}", chat.getName());
+//                        logger.info("Personal chat, using companion name: {}", chat.getName());
                     }
                 } catch (Exception e) {
-                    logger.error("Error fetching participants for chat {}: {}", chatId, e.getMessage());
+//                    logger.error("Error fetching participants for chat {}: {}", chatId, e.getMessage());
                 }
             }
 
@@ -275,8 +283,8 @@ public class ChatService {
             String senderName = row[8] != null ? (String) row[8] : null;
             String senderAvatarUrl = row[9] != null ? (String) row[9] : null;
 
-            logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}",
-                    chatId, dummyChat.getName(), messageId, senderId);
+//            logger.info("Extracted data: chatId={}, chatName={}, messageId={}, senderId={}",
+//                    chatId, dummyChat.getName(), messageId, senderId);
 
             MessageDTO messageDTO = null;
             if (messageId != null) {

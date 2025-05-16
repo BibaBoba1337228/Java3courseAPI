@@ -39,7 +39,7 @@ public class Board {
 
     @OneToMany(mappedBy = "board", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
-    private List<DashBoardColumn> columns = new ArrayList<>();
+    private Set<DashBoardColumn> columns = new HashSet<>();
 
     @OneToMany(mappedBy = "board", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
@@ -121,11 +121,11 @@ public class Board {
         userRights.removeIf(right -> right.getUser().equals(user));
     }
 
-    public List<DashBoardColumn> getColumns() {
+    public Set<DashBoardColumn> getColumns() {
         return columns;
     }
 
-    public void setColumns(List<DashBoardColumn> columns) {
+    public void setColumns(Set<DashBoardColumn> columns) {
         this.columns = columns;
     }
 

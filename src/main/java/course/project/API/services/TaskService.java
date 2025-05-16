@@ -1,5 +1,8 @@
 package course.project.API.services;
 
+import course.project.API.dto.board.TagDTO;
+import course.project.API.dto.board.TaskDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.*;
 import course.project.API.repositories.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,13 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
-import java.util.ArrayList;
 
 @Service
 public class TaskService {
@@ -605,45 +606,78 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<Task> searchTasks(String searchText, Long projectId, Long boardId, 
-                                 Long tagId, Boolean isCompleted, 
-                                 List<Long> participantIds, String sortDirection) {
+    public List<TaskDTO> searchTasks(String searchText, Long projectId, Long boardId,
+                                 Long tagId, String sortDirection,Boolean isCompleted, boolean isTitleSearch, boolean isDescriptionSearch, Long currentUserID) {
         
-        logger.info("Searching tasks with criteria: searchText={}, projectId={}, boardId={}, " +
-                   "tagId={}, isCompleted={}, participantIds={}, sortDirection={}",
-                   searchText, projectId, boardId, tagId, isCompleted, participantIds, sortDirection);
+        logger.info("Ищу задачи searchText: {}, projectId: {}, boardId: {}, tagId: {}, sortDirection: {}, isCompleted: {}, isTitleSearch: {}, isDescriptionSearch: {}",
+                searchText, projectId, boardId, tagId, sortDirection, isCompleted, isTitleSearch, isDescriptionSearch);
         
-        // If search text is empty, set it to null
         if (searchText != null && searchText.trim().isEmpty()) {
             searchText = null;
         }
         
-        boolean participantIdsEmpty = participantIds == null || participantIds.isEmpty();
-        
-        if (participantIds == null) {
-            participantIds = new ArrayList<>();
-        }
-        
-        // Default to ascending if invalid sort direction
         if (sortDirection == null || (!sortDirection.equalsIgnoreCase("asc") && !sortDirection.equalsIgnoreCase("desc"))) {
             sortDirection = "asc";
         }
         
-        List<Task> results;
+        List<Object[]> results;
         
         if (sortDirection.equalsIgnoreCase("asc")) {
             results = taskRepository.searchTasksAsc(
-                searchText, projectId, boardId, tagId, isCompleted, 
-                participantIds, participantIdsEmpty
+                    searchText, projectId, boardId, tagId, isCompleted,
+                    !isTitleSearch, !isDescriptionSearch, currentUserID
             );
         } else {
             results = taskRepository.searchTasksDesc(
-                searchText, projectId, boardId, tagId, isCompleted, 
-                participantIds, participantIdsEmpty
+                searchText, projectId, boardId, tagId, isCompleted,
+                    !isTitleSearch, !isDescriptionSearch, currentUserID
             );
         }
-        
-        logger.info("Found {} tasks matching search criteria", results.size());
-        return results;
+        List<TaskDTO> taskDTOList = new ArrayList<>();
+        TaskDTO task = new TaskDTO();
+        for (Object[] row : results) {
+            Long taskId = (Long) row[0];
+            Long userId = (Long) row[9];
+            String userName = (String) row[10];
+            String avatarURL = (String) row[11];
+
+            if (task.getId() != null && task.getId().equals(taskId)) {
+                task.getParticipants().add(new UserResponse(
+                        userId,
+                        userName,
+                        avatarURL
+                ));
+                continue;
+            }
+
+            task.setId(taskId);
+            task.setColumnId((Long) row[1]);
+            task.setTitle((String) row[2]);
+            task.setDescription((String) row[3]);
+            task.setStartDate(row[4] != null
+                    ? ((Timestamp) row[4]).toLocalDateTime()
+                    : null);
+            task.setEndDate(row[5] != null
+                    ? ((Timestamp) row[5]).toLocalDateTime()
+                    : null);
+
+            tagId = (Long) row[6];
+            if (tagId != null) task.setTag(new TagDTO(
+                    tagId,
+                    (String) row[7],
+                    (String) row[8]
+            ));
+            task = new TaskDTO();
+            task.setParticipants(new HashSet<>());
+            if (userId != null ) task.getParticipants().add(new UserResponse(
+                    userId,
+                    userName,
+                    avatarURL
+            ));
+
+            taskDTOList.add(task);
+
+        }
+        return taskDTOList;
     }
 } 

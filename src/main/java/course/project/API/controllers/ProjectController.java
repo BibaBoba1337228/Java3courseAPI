@@ -44,11 +44,6 @@ public class ProjectController {
         this.boardService = boardService;
     }
 
-    @GetMapping
-    public List<ProjectDTO> getAllProjects() {
-        return projectService.getAllProjects();
-    }
-
     @GetMapping("/{id}")
     public ResponseEntity<ProjectWithParticipantsOwnerInvitationsDTO> getProjectById(
             @PathVariable Long id,
@@ -88,7 +83,7 @@ public class ProjectController {
 
     @GetMapping("/my")
     public List<ProjectWithParticipantsOwnerDTO> getMyProjects(@AuthenticationPrincipal User currentUser) {
-        return projectService.getMyProjectsWithUsers(currentUser.getId());
+        return projectService.getMyProjectsWithUsers(currentUser);
     }
 
     @PostMapping

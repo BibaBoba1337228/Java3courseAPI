@@ -219,7 +219,7 @@ public class BoardRightService {
     /**
      * Get visible boards for a user in a project
      */
-    public List<Board> getVisibleBoardsForUser(Long projectId, Long userId) {
+    public Set<Board> getVisibleBoardsForUser(Long projectId, Long userId) {
         try {
             Project project = projectRepository.findById(projectId)
                     .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
@@ -235,16 +235,16 @@ public class BoardRightService {
             // Check if user has VIEW_PROJECT right
             if (!projectRightService.hasProjectRight(projectId, userId, ProjectRight.VIEW_PROJECT)) {
                 // Return empty list instead of throwing exception
-                return List.of();
+                return Set.of();
             }
             
             // Return only boards where user is a participant
             return project.getBoards().stream()
                     .filter(board -> board.getParticipants().contains(user))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toSet());
         } catch (Exception e) {
             System.err.println("Error getting visible boards: " + e.getMessage());
-            return List.of();
+            return Set.of();
         }
     }
 

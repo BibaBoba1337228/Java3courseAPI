@@ -37,7 +37,7 @@ public class Project {
 
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
-    private List<Board> boards = new ArrayList<>();
+    private Set<Board> boards = new HashSet<>();
     
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProjectUserRight> userRights = new ArrayList<>();
@@ -123,11 +123,11 @@ public class Project {
         this.owner = owner;
     }
 
-    public List<Board> getBoards() {
+    public Set<Board> getBoards() {
         return boards;
     }
 
-    public void setBoards(List<Board> boards) {
+    public void setBoards(Set<Board> boards) {
         this.boards = boards;
     }
 

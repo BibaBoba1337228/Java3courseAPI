@@ -84,7 +84,7 @@ public class TaskController {
         this.attachmentRepository = attachmentRepository;
         this.boardRightService = boardRightService;
         this.webSocketService = webSocketService;
-        this.baseUrl = "http://localhost:8080"; // Базовый URL для скачивания файлов
+        this.baseUrl = "http://localhost:8080";
         this.boardService = boardService;
         this.projectService = projectService;
         this.projectRightService = projectRightService;
@@ -1403,26 +1403,19 @@ public class TaskController {
         
         logger.info("Searching tasks with criteria: {}", searchRequest);
         
-        // Perform the search
-        List<Task> tasks = taskService.searchTasks(
+        List<TaskDTO> tasks = taskService.searchTasks(
             searchRequest.getSearchText(),
             searchRequest.getProjectId(),
             searchRequest.getBoardId(),
             searchRequest.getTagId(),
+            searchRequest.getSortDirection(),
             searchRequest.getIsCompleted(),
-            searchRequest.getParticipantIds(),
-            searchRequest.getSortDirection()
+            Boolean.TRUE.equals(searchRequest.getIsTitleSearch()),
+            Boolean.TRUE.equals(searchRequest.getIsDescriptionSearch()),
+            currentUser.getId()
         );
-        
-        // Convert tasks to DTOs
-        List<TaskDTO> taskDTOs = tasks.stream()
-            .map(task -> {
-                Long boardId = task.getColumn().getBoard().getId();
-                return convertToTaskDTO(task, boardId, true);
-            })
-            .collect(Collectors.toList());
-        
-        logger.info("Returning {} tasks from search", taskDTOs.size());
-        return ResponseEntity.ok(taskDTOs);
+
+        logger.info("Returning {} tasks from search", tasks.size());
+        return ResponseEntity.ok(tasks);
     }
 } 

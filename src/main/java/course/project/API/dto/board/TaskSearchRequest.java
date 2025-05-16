@@ -7,9 +7,10 @@ public class TaskSearchRequest {
     private Long projectId;
     private Long boardId;
     private Long tagId;
-    private List<Long> participantIds;
     private Boolean isCompleted;
     private String sortDirection = "asc"; // "asc" or "desc"
+    private Boolean isTitleSearch;
+    private Boolean isDescriptionSearch;
 
     public TaskSearchRequest() {
     }
@@ -46,12 +47,20 @@ public class TaskSearchRequest {
         this.tagId = tagId;
     }
 
-    public List<Long> getParticipantIds() {
-        return participantIds;
+    public Boolean getIsTitleSearch() {
+        return isTitleSearch;
     }
 
-    public void setParticipantIds(List<Long> participantIds) {
-        this.participantIds = participantIds;
+    public void setIsTitleSearch(Boolean titleSearch) {
+        isTitleSearch = titleSearch;
+    }
+
+    public Boolean getIsDescriptionSearch() {
+        return isDescriptionSearch;
+    }
+
+    public void setIsDescriptionSearch(Boolean descriptionSearch) {
+        isDescriptionSearch = descriptionSearch;
     }
 
     public Boolean getIsCompleted() {

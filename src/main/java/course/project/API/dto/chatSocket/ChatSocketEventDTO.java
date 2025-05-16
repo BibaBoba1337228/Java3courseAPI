@@ -1,5 +1,6 @@
 package course.project.API.dto.chatSocket;
 
+import course.project.API.dto.chat.ChatWithLastMessageDTO;
 import course.project.API.dto.chat.EditedMessageDTO;
 import course.project.API.dto.chat.MessageDTO;
 import course.project.API.dto.chat.SendMessageDTO;
@@ -25,7 +26,7 @@ public class ChatSocketEventDTO {
     public static final String MESSAGE_DELETED = "MESSAGE_DELETED";
     public static final String MESSAGE_EDITED = "MESSAGE_EDITED";
     public static final String MESSAGE_READED = "MESSAGE_READED";
-
+    public static final String CHAT_CREATED = "CHAT_CREATED";
 
     public String getType() {
         return type;
@@ -80,5 +81,8 @@ public class ChatSocketEventDTO {
         return new ChatSocketEventDTO(MESSAGE_READED, chatId, payload);
     }
 
+    public static ChatSocketEventDTO chatCreated(ChatWithLastMessageDTO payload) {
+        return new ChatSocketEventDTO(CHAT_CREATED, payload.getId(), payload);
+    }
 
 } 

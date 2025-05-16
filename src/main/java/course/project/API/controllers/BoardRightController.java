@@ -137,11 +137,11 @@ public class BoardRightController {
 
 
     @GetMapping("/visible")
-    public ResponseEntity<List<Board>> getVisibleBoards(
+    public ResponseEntity<Set<Board>> getVisibleBoards(
             @RequestParam Long projectId,
             @AuthenticationPrincipal User currentUser) {
         
-        List<Board> boards = boardRightService.getVisibleBoardsForUser(projectId, currentUser.getId());
+        Set<Board> boards = boardRightService.getVisibleBoardsForUser(projectId, currentUser.getId());
         return ResponseEntity.ok(boards);
     }
 } 

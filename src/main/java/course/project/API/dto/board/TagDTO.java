@@ -9,6 +9,12 @@ public class TagDTO {
     public TagDTO() {
     }
 
+    public TagDTO(Long id, String name, String color) {
+        this.id = id;
+        this.name = name;
+        this.color = color;
+    }
+
     public TagDTO(Long id, String name, String color, Long boardId) {
         this.id = id;
         this.name = name;

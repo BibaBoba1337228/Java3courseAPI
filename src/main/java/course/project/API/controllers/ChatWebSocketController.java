@@ -100,6 +100,7 @@ public class ChatWebSocketController {
         }
     }
 
+
     private void broadcastToChatParticipants(Long chatId, ChatSocketEventDTO event) {
         try {
 

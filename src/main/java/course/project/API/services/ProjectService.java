@@ -3,22 +3,23 @@ package course.project.API.services;
 import course.project.API.dto.project.ProjectDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Project;
 import course.project.API.models.User;
 import course.project.API.models.Board;
 import course.project.API.models.DashBoardColumn;
-import course.project.API.models.Task;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
 import course.project.API.repositories.InvitationRepository;
 import course.project.API.repositories.BoardRepository;
 import org.modelmapper.ModelMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,6 +30,7 @@ public class ProjectService {
     private final ModelMapper modelMapper;
     private final ProjectRightService projectRightService;
     private final BoardRepository boardRepository;
+    private static final Logger logger = LoggerFactory.getLogger(ProjectService.class);
 
     @Autowired
     public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper, ProjectRightService projectRightService, BoardRepository boardRepository) {
@@ -55,23 +57,37 @@ public class ProjectService {
         return projectRepository.findProjectWithParticipantsOwnerById(id)
                 .map(project -> modelMapper.map(project, ProjectWithParticipantsOwnerInvitationsDTO.class));
     }
-    public List<ProjectDTO> getMyProjects(Long userId) {
-        return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
+    @Transactional(readOnly = true)
+    public List<ProjectWithParticipantsOwnerDTO> getMyProjectsWithUsers(User currentUser) {
+        logger.info("Достаю проекты с овнером и участниками");
+        List<Project> projects = projectRepository.findByOwner_IdOrParticipants_Id(currentUser.getId(), currentUser.getId());
+        logger.info("Достаю гига проекты");
+        List<Project> gigaProjects = projectRepository.findProjectsByIdsWithBoardsColumnsTasks(
+                projects.stream().map(Project::getId).toList()
+        );
+        logger.info("Делаю Map");
+        Map<Long, Set<User>> projectsWithParticipants = projects.stream().collect(Collectors.toMap(Project::getId, Project::getParticipants));
+        return gigaProjects
                 .stream()
                 .map(project -> {
-                    ProjectDTO dto = modelMapper.map(project, ProjectDTO.class);
-                    dto.setCompletionPercentage(calculateProjectCompletionPercentage(project.getId()));
-                    return dto;
-                })
-                .collect(Collectors.toList());
-    }
+                    ProjectWithParticipantsOwnerDTO dto = new ProjectWithParticipantsOwnerDTO();
+                    dto.setId(project.getId());
+                    dto.setTitle(project.getTitle());
+                    dto.setDescription(project.getDescription());
+                    dto.setEmoji(project.getEmoji());
+                    dto.setParticipants(projectsWithParticipants.get(project.getId()).stream().map(user -> new UserResponse(
+                           user.getId(),
+                           user.getName(),
+                            user.getAvatarURL()
+                    )).collect(Collectors.toSet()));
+                    dto.setOwner(new UserResponse(
+                            project.getOwner().getId(),
+                            project.getOwner().getName(),
+                            project.getOwner().getAvatarURL()
+                    ));
+                    logger.info("Считаю комплит");
 
-    public List<ProjectWithParticipantsOwnerDTO> getMyProjectsWithUsers(Long userId) {
-        return projectRepository.findByOwner_IdOrParticipants_Id(userId, userId)
-                .stream()
-                .map(project -> {
-                    ProjectWithParticipantsOwnerDTO dto = modelMapper.map(project, ProjectWithParticipantsOwnerDTO.class);
-                    dto.setCompletionPercentage(calculateProjectCompletionPercentage(project.getId()));
+                    dto.setCompletionPercentage(calculateProjectCompletionPercentage(project));
                     return dto;
                 })
                 .collect(Collectors.toList());
@@ -201,16 +217,8 @@ public class ProjectService {
                 .orElse(false);
     }
 
-    /**
-     * Calculates the completion percentage for a project based on the average 
-     * completion percentage of all its boards
-     * 
-     * @param projectId The ID of the project to calculate completion for
-     * @return The completion percentage as a Double between 0.0 and 100.0
-     */
-    private Double calculateProjectCompletionPercentage(Long projectId) {
-        List<Board> boards = boardRepository.findByProjectId(projectId);
-        
+    private Double calculateProjectCompletionPercentage(Project project) {
+        Set<Board> boards = project.getBoards();
         if (boards.isEmpty()) {
             return 0.0;
         }
@@ -225,13 +233,7 @@ public class ProjectService {
         return Math.round(averagePercentage * 100.0) / 100.0;
     }
     
-    /**
-     * Calculates the completion percentage for a board based on tasks in completion columns
-     * compared to total tasks on the board
-     * 
-     * @param board The board to calculate completion for
-     * @return The completion percentage as a Double between 0.0 and 100.0
-     */
+
     private Double calculateBoardCompletionPercentage(Board board) {
         int totalTasks = 0;
         int completedTasks = 0;

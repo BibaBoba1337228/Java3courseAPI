@@ -64,11 +64,14 @@ public class ChatController {
             @AuthenticationPrincipal User currentUser) {
         try {
 
-            ChatDTO chat = chatService.createPersonalChat(userId, currentUser);
+            WrapperChatWithLastMessageDTOForController chat = chatService.createPersonalChat(userId, currentUser);
             if (chat == null) {
                 return ResponseEntity.status(400).body(new SimpleDTO("Такой чат уже есть"));
             }
-            return ResponseEntity.ok(chat);
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO());
+
+            webSocketService.sendPrivateMessageToUser(chat.getUsers().get(0).getUsername(), event);
+            return ResponseEntity.ok(chat.getChatWithLastMessageDTO());
         } catch (Exception e) {
             logger.error("Error creating chat: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
@@ -80,13 +83,16 @@ public class ChatController {
             @RequestBody CreateGroupChatDTO request,
             @AuthenticationPrincipal User currentUser) {
         try {
-            ChatDTO chat = chatService.createGroupChat(request, currentUser);
+            WrapperChatWithLastMessageDTOForController chat = chatService.createGroupChat(request, currentUser);
 
             if (chat == null) {
                 return ResponseEntity.status(400).body(new SimpleDTO("Добавляются фантомные пользователи"));
             }
-
-            return ResponseEntity.ok(chat);
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO());
+            for (User user : chat.getUsers()) {
+                webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
+            }
+            return ResponseEntity.ok(chat.getChatWithLastMessageDTO());
         } catch (Exception e) {
             logger.error("Error creating chat: {}", e.getMessage());
             return ResponseEntity.badRequest().build();

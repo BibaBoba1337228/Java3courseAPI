@@ -28,17 +28,11 @@ public class ProjectRightController {
     /**
      * Получает все права пользователя на всех проектах одним запросом
      */
-    @GetMapping("/api/user-project-rights/{userId}")
+    @GetMapping("/api/user-project-rights/")
     public ResponseEntity<ProjectRightsDTO> getUserRightsForAllProjects(
-            @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
-        
-        // Разрешаем только запрашивать свои собственные права
-        if (!currentUser.getId().equals(userId)) {
-            return ResponseEntity.status(403).body(null);
-        }
-        
-        var rights = projectRightService.getUserRightsForAllProjects(userId);
+
+        var rights = projectRightService.getUserRightsForAllProjects(currentUser.getId());
         ProjectRightsDTO result = new ProjectRightsDTO(rights);
         return ResponseEntity.ok(result);
     }

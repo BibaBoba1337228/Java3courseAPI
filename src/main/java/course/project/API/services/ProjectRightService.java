@@ -14,10 +14,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -89,7 +86,7 @@ public class ProjectRightService {
             // If MANAGE_BOARD_RIGHTS or MANAGE_ACCESS is granted, give MANAGE_RIGHTS on all boards where user is participant
             if (right == ProjectRight.MANAGE_BOARD_RIGHTS) {
                 // Get all boards in this project
-                List<Board> projectBoards = project.getBoards();
+                Set<Board> projectBoards = project.getBoards();
                 
                 // For each board where user is a participant, grant MANAGE_RIGHTS
                 for (Board board : projectBoards) {
@@ -100,7 +97,7 @@ public class ProjectRightService {
             }
 
             if (right == ProjectRight.MANAGE_ACCESS) {
-                List<Board> projectBoards = project.getBoards();
+                Set<Board> projectBoards = project.getBoards();
                 
                 for (Board board : projectBoards) {
                     if (board.getParticipants().contains(user)) {
@@ -139,7 +136,7 @@ public class ProjectRightService {
         // If MANAGE_BOARD_RIGHTS or MANAGE_ACCESS is revoked, remove MANAGE_RIGHTS from all boards
         if (right == ProjectRight.MANAGE_BOARD_RIGHTS) {
             // Get all boards in this project
-            List<Board> projectBoards = project.getBoards();
+            Set<Board> projectBoards = project.getBoards();
             
             // Check if the user still has any of these rights at project level
             boolean stillHasRights = hasProjectRight(projectId, userId, ProjectRight.MANAGE_BOARD_RIGHTS);
@@ -155,7 +152,7 @@ public class ProjectRightService {
 
         if (right == ProjectRight.MANAGE_ACCESS) {
             // Get all boards in this project
-            List<Board> projectBoards = project.getBoards();
+            Set<Board> projectBoards = project.getBoards();
             
             boolean stillHasRights = hasProjectRight(projectId, userId, ProjectRight.MANAGE_ACCESS);
             
@@ -292,48 +289,24 @@ public class ProjectRightService {
      * @param userId ID пользователя
      * @return Map с правами пользователя на всех проектах
      */
-    public java.util.Map<Long, Set<ProjectRight>> getUserRightsForAllProjects(Long userId) {
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-        
-        // Получаем все права пользователя
-        List<ProjectUserRight> allUserRights = projectUserRightRepository.findByUser(user);
-        
-        // Получаем все проекты, где пользователь является участником
-        List<Project> userProjects = projectRepository.findByParticipantsContains(user);
-        
-        // Добавляем проекты, где пользователь является владельцем (если они не в списке участников)
-        List<Project> ownedProjects = projectRepository.findByOwner(user);
-        for (Project ownedProject : ownedProjects) {
-            if (!userProjects.contains(ownedProject)) {
-                userProjects.add(ownedProject);
+    public Map<Long, Set<ProjectRight>> getUserRightsForAllProjects(Long userId) {
+
+        List<Object[]> result = projectRepository.findProjectIdAndRightNameByOwnerIdOrParticipantId(userId);
+        Long currentProjectId = null;
+        Map<Long, Set<ProjectRight>> userRights = new HashMap<>();
+        for (Object[] row : result) {
+            Long projectId = (Long) row[0];
+            String rightName = (String) row[1];
+            if (currentProjectId != null && projectId.equals(currentProjectId)) {
+                userRights.get(projectId).add(ProjectRight.valueOf(rightName));
+                continue;
             }
+            currentProjectId = projectId;
+            HashSet<ProjectRight> projectRights = new HashSet<>();
+            projectRights.add(ProjectRight.valueOf(rightName));
+            userRights.put(projectId, projectRights);
+
         }
-        
-        // Создаем результирующую Map
-        java.util.Map<Long, Set<ProjectRight>> result = new java.util.HashMap<>();
-        
-        // Для каждого проекта добавляем права пользователя
-        for (Project project : userProjects) {
-            // Если пользователь является владельцем, даем все права
-            if (project.getOwner() != null && project.getOwner().equals(user)) {
-                result.put(project.getId(), new HashSet<>(Arrays.asList(ProjectRight.values())));
-            } else {
-                // Иначе получаем список явно выданных прав
-                Set<ProjectRight> projectRights = allUserRights.stream()
-                    .filter(right -> right.getProject().getId().equals(project.getId()))
-                    .map(ProjectUserRight::getRight)
-                    .collect(Collectors.toSet());
-                
-                // Участник проекта всегда имеет VIEW_PROJECT право
-                if (project.getParticipants().contains(user)) {
-                    projectRights.add(ProjectRight.VIEW_PROJECT);
-                }
-                
-                result.put(project.getId(), projectRights);
-            }
-        }
-        
-        return result;
+        return userRights;
     }
 } 
