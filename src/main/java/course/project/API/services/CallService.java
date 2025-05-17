@@ -4,6 +4,7 @@ import course.project.API.dto.call.CallEventDTO;
 import course.project.API.dto.call.CallEventType;
 import course.project.API.dto.call.CallType;
 import course.project.API.models.ActiveCall;
+import course.project.API.models.CallRoom;
 import course.project.API.models.Chat;
 import course.project.API.models.User;
 import course.project.API.repositories.ChatRepository;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.HashSet;
 
 @Service
 public class CallService {
@@ -35,6 +37,12 @@ public class CallService {
     
     // Secondary index to quickly find calls by chatId
     private final Map<Long, Long> chatToCallMap = new ConcurrentHashMap<>();
+    
+    // Добавляем новое поле для хранения комнат
+    private final Map<String, CallRoom> callRooms = new ConcurrentHashMap<>();
+    
+    // Дополнительный индекс для быстрого поиска комнат по chatId
+    private final Map<Long, String> chatToRoomMap = new ConcurrentHashMap<>();
     
     @Autowired
     public CallService(SimpMessagingTemplate messagingTemplate,
@@ -67,6 +75,36 @@ public class CallService {
         }
         
         boolean isGroupChat = chat.isGroupChat();
+        
+        // Проверяем, не находится ли кто-то из участников в другом звонке
+        if (!isGroupChat) {
+            // Для прямого звонка проверяем второго участника
+            Optional<User> otherParticipant = chat.getParticipants().stream()
+                .filter(user -> !user.getId().equals(initiatorId))
+                .findFirst();
+                
+            if (otherParticipant.isPresent()) {
+                User participant = otherParticipant.get();
+                // Проверяем все активные звонки
+                for (ActiveCall activeCall : activeCalls.values()) {
+                    if (activeCall.isActive(participant.getId())) {
+                        logger.info("[CALL] User {} is already in call {}", participant.getId(), activeCall.getId());
+                        // Создаем событие о занятости
+                        CallEventDTO busyEvent = new CallEventDTO(
+                            CallEventType.CALL_BUSY,
+                            chatId,
+                            null, // нет callId, так как звонок не создается
+                            initiatorId,
+                            initiator.getName(),
+                            callType
+                        );
+                        busyEvent.addToPayload("busyUserId", participant.getId());
+                        busyEvent.addToPayload("busyUserName", participant.getName());
+                        return busyEvent;
+                    }
+                }
+            }
+        }
         
         // Check if there's already an active call in this chat
         Long existingCallId = chatToCallMap.get(chatId);
@@ -646,5 +684,250 @@ public class CallService {
             // For group calls, broadcast acceptance to all participants
             broadcastToCallParticipants(activeCall, callEvent);
         }
+    }
+    
+    /**
+     * Создает новую комнату для звонка
+     */
+    public CallEventDTO createCallRoom(Long chatId, Long creatorId, CallType callType) {
+        logger.info("[ROOM] Creating new call room in chat {} by user {}", chatId, creatorId);
+        
+        // Проверяем, существует ли уже комната для этого чата
+        String existingRoomId = chatToRoomMap.get(chatId);
+        if (existingRoomId != null) {
+            CallRoom existingRoom = callRooms.get(existingRoomId);
+            if (existingRoom != null) {
+                logger.info("[ROOM {}] Room already exists for chat {}", existingRoomId, chatId);
+                
+                // Добавляем создателя как участника, если он еще не в комнате
+                if (!existingRoom.hasParticipant(creatorId)) {
+                    existingRoom.addParticipant(creatorId);
+                }
+                
+                // Создаем событие с существующей комнатой
+                CallEventDTO roomEvent = new CallEventDTO(
+                    CallEventType.ROOM_CREATED,
+                    chatId,
+                    null,
+                    existingRoom.getCreatorId(),
+                    existingRoom.getCreatorName(),
+                    existingRoom.getCallType()
+                );
+                
+                roomEvent.addToPayload("roomId", existingRoom.getRoomId());
+                existingRoom.getParticipants().forEach(roomEvent::addParticipant);
+                
+                return roomEvent;
+            } else {
+                // Комната была, но её уже нет, удаляем запись
+                chatToRoomMap.remove(chatId);
+            }
+        }
+        
+        User creator = userRepository.findById(creatorId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        
+        Chat chat = chatRepository.findByIdWithParticipants(chatId);
+        if (chat == null) {
+            throw new IllegalArgumentException("Chat not found");
+        }
+        
+        boolean isGroupChat = chat.isGroupChat();
+        
+        // Создаем новую комнату
+        CallRoom room = new CallRoom(chatId, creatorId, creator.getName(), callType, isGroupChat);
+        callRooms.put(room.getRoomId(), room);
+        chatToRoomMap.put(chatId, room.getRoomId());
+        
+        // Создаем событие о создании комнаты
+        CallEventDTO roomEvent = new CallEventDTO(
+            CallEventType.ROOM_CREATED,
+            chatId,
+            null,
+            creatorId,
+            creator.getName(),
+            callType
+        );
+        
+        roomEvent.addToPayload("roomId", room.getRoomId());
+        room.getParticipants().forEach(roomEvent::addParticipant);
+        
+        logger.info("[ROOM {}] Created new room: chatId={}, isGroupCall={}", 
+                   room.getRoomId(), chatId, isGroupChat);
+        
+        return roomEvent;
+    }
+    
+    /**
+     * Приглашает пользователя в комнату звонка
+     */
+    public CallEventDTO inviteToRoom(String roomId, Long inviterId, Long inviteeId) {
+        logger.info("[ROOM {}] User {} inviting user {}", roomId, inviterId, inviteeId);
+        
+        CallRoom room = callRooms.get(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("Room not found");
+        }
+        
+        User inviter = userRepository.findById(inviterId).orElse(null);
+        User invitee = userRepository.findById(inviteeId).orElse(null);
+        
+        if (inviter == null || invitee == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        // Создаем событие приглашения
+        CallEventDTO inviteEvent = new CallEventDTO(
+            CallEventType.ROOM_INVITE,
+            room.getChatId(),
+            null,
+            inviterId,
+            inviter.getName(),
+            room.getCallType()
+        );
+        
+        inviteEvent.addToPayload("roomId", roomId);
+        inviteEvent.addToPayload("inviteeId", inviteeId);
+        inviteEvent.addToPayload("inviteeName", invitee.getName());
+        
+        // Отправляем приглашение только приглашенному пользователю
+        webSocketService.sendPrivateMessageToUser(
+            invitee.getUsername(),
+            inviteEvent
+        );
+        
+        return inviteEvent;
+    }
+    
+    /**
+     * Обрабатывает присоединение пользователя к комнате
+     */
+    public CallEventDTO joinRoom(String roomId, Long userId) {
+        logger.info("[ROOM {}] User {} joining room", roomId, userId);
+        
+        CallRoom room = callRooms.get(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("Room not found");
+        }
+        
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        // Добавляем пользователя в комнату
+        room.addParticipant(userId);
+        
+        // Создаем событие о присоединении
+        CallEventDTO joinEvent = new CallEventDTO(
+            CallEventType.ROOM_JOINED,
+            room.getChatId(),
+            null,
+            userId,
+            user.getName(),
+            room.getCallType()
+        );
+        
+        joinEvent.addToPayload("roomId", roomId);
+        room.getParticipants().forEach(joinEvent::addParticipant);
+        
+        // Отправляем событие всем участникам комнаты
+        broadcastToRoomParticipants(room, joinEvent);
+        
+        return joinEvent;
+    }
+    
+    /**
+     * Обрабатывает выход пользователя из комнаты
+     */
+    public CallEventDTO leaveRoom(String roomId, Long userId) {
+        logger.info("[ROOM {}] User {} leaving room", roomId, userId);
+        
+        CallRoom room = callRooms.get(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("Room not found");
+        }
+        
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        // Удаляем пользователя из комнаты
+        room.removeParticipant(userId);
+        
+        // Создаем событие о выходе
+        CallEventDTO leaveEvent = new CallEventDTO(
+            CallEventType.ROOM_LEFT,
+            room.getChatId(),
+            null,
+            userId,
+            user.getName(),
+            room.getCallType()
+        );
+        
+        leaveEvent.addToPayload("roomId", roomId);
+        room.getParticipants().forEach(leaveEvent::addParticipant);
+        
+        // Если комната пуста, удаляем её
+        if (room.isEmpty()) {
+            callRooms.remove(roomId);
+            chatToRoomMap.remove(room.getChatId());
+            logger.info("[ROOM {}] Room is empty, removing", roomId);
+        } else {
+            // Иначе отправляем событие о выходе всем оставшимся участникам
+            broadcastToRoomParticipants(room, leaveEvent);
+        }
+        
+        return leaveEvent;
+    }
+    
+    /**
+     * Рассылает событие всем участникам комнаты
+     */
+    private void broadcastToRoomParticipants(CallRoom room, CallEventDTO event) {
+        logger.info("[ROOM {}] Broadcasting to all participants", room.getRoomId());
+        
+        Set<User> participants = new HashSet<>(userRepository.findAllById(room.getParticipants().keySet()));
+        
+        for (User participant : participants) {
+            webSocketService.sendPrivateMessageToUser(
+                participant.getUsername(),
+                event
+            );
+        }
+    }
+    
+    /**
+     * Получает информацию о комнате
+     */
+    public CallRoom getRoom(String roomId) {
+        return callRooms.get(roomId);
+    }
+    
+    /**
+     * Получает список всех активных комнат
+     */
+    public Map<String, CallRoom> getActiveRooms() {
+        return new HashMap<>(callRooms);
+    }
+    
+    /**
+     * Получает комнату по id чата
+     */
+    public CallRoom getRoomByChat(Long chatId) {
+        String roomId = chatToRoomMap.get(chatId);
+        if (roomId != null) {
+            return callRooms.get(roomId);
+        }
+        return null;
+    }
+    
+    /**
+     * Проверяет, существует ли комната для чата
+     */
+    public boolean hasActiveRoom(Long chatId) {
+        String roomId = chatToRoomMap.get(chatId);
+        return roomId != null && callRooms.containsKey(roomId);
     }
 } 

@@ -4,6 +4,7 @@ import course.project.API.dto.call.CallEventDTO;
 import course.project.API.dto.call.CallEventType;
 import course.project.API.dto.call.CallType;
 import course.project.API.models.ActiveCall;
+import course.project.API.models.CallRoom;
 import course.project.API.models.Chat;
 import course.project.API.models.User;
 import course.project.API.repositories.ChatRepository;
@@ -57,6 +58,17 @@ public class CallWebSocketController {
             // Создаем звонок без SDP offer - первая фаза сигнализации
             CallEventDTO callEvent = callService.startCall(chatId, user.getId(), callType);
             
+            // Проверяем тип события, которое вернул сервис
+            if (callEvent.getType() == CallEventType.CALL_BUSY) {
+                // Если пользователь занят, отправляем только инициатору
+                logger.info("User is busy, sending CALL_BUSY to initiator: {}", user.getName());
+                webSocketService.sendPrivateMessageToUser(
+                    user.getUsername(),
+                    callEvent
+                );
+                return;
+            }
+            
             // Отправляем уведомление инициатору с callId через его приватную очередь
             // Это гарантирует, что инициатор получит callId до того, как начнет отправлять ICE кандидаты
             CallEventDTO initiatorNotification = new CallEventDTO();
@@ -77,13 +89,38 @@ public class CallWebSocketController {
             // Для прямых и групповых чатов, отправляем уведомление всем участникам через приватные очереди
             Chat chat = chatRepository.findByIdWithParticipants(chatId);
             if (chat != null) {
-                for (User participant : chat.getParticipants()) {
-                    if (!participant.getId().equals(user.getId())) {
-                        logger.info("Sending call notification to chat member: {}", participant.getName());
-                        webSocketService.sendPrivateMessageToUser(
-                            participant.getUsername(),
-                            callEvent
-                        );
+                // Для групповых чатов отправляем уведомление всем участникам
+                if (chat.isGroupChat()) {
+                    // Создаем уведомление о начале звонка для всех участников
+                    CallEventDTO callStartNotification = new CallEventDTO();
+                    callStartNotification.setType(CallEventType.CALL_NOTIFICATION);
+                    callStartNotification.setChatId(chatId);
+                    callStartNotification.setCallId(callEvent.getCallId());
+                    callStartNotification.setSenderId(user.getId());
+                    callStartNotification.setSenderName(user.getName());
+                    callStartNotification.setCallType(callType);
+                    callStartNotification.addParticipant(user.getId(), true);
+
+                    // Отправляем уведомление всем участникам группового чата
+                    for (User participant : chat.getParticipants()) {
+                        if (!participant.getId().equals(user.getId())) {
+                            logger.info("Sending call notification to group chat member: {}", participant.getName());
+                            webSocketService.sendPrivateMessageToUser(
+                                participant.getUsername(),
+                                callStartNotification
+                            );
+                        }
+                    }
+                } else {
+                    // Для прямых чатов отправляем уведомление только собеседнику
+                    for (User participant : chat.getParticipants()) {
+                        if (!participant.getId().equals(user.getId())) {
+                            logger.info("Sending call notification to direct chat participant: {}", participant.getName());
+                            webSocketService.sendPrivateMessageToUser(
+                                participant.getUsername(),
+                                callEvent
+                            );
+                        }
                     }
                 }
             }
@@ -253,8 +290,22 @@ public class CallWebSocketController {
         try {
             logger.info("Received call end: {}", payload);
             
-            Long chatId = Long.valueOf(payload.get("chatId").toString());
-            Long callId = Long.valueOf(payload.get("callId").toString());
+            if (payload == null) {
+                logger.error("Received null payload for call end");
+                return;
+            }
+            
+            Object chatIdObj = payload.get("chatId");
+            Object callIdObj = payload.get("callId");
+            
+            if (chatIdObj == null || callIdObj == null) {
+                logger.error("Missing required fields in call end payload: chatId={}, callId={}", 
+                           chatIdObj, callIdObj);
+                return;
+            }
+            
+            Long chatId = Long.valueOf(chatIdObj.toString());
+            Long callId = Long.valueOf(callIdObj.toString());
             
             // End the call through the call service
             callService.endCall(chatId, callId, user.getId());
@@ -367,6 +418,146 @@ public class CallWebSocketController {
             
         } catch (Exception e) {
             logger.error("Error updating media status: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Создает новую комнату для звонка
+     */
+    @MessageMapping("/call/room/create")
+    public void createRoom(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received room creation request: {}", payload);
+            
+            Long chatId = Long.valueOf(payload.get("chatId").toString());
+            String callTypeStr = payload.get("callType").toString();
+            CallType callType = CallType.valueOf(callTypeStr.toUpperCase());
+            
+            // Создаем комнату
+            CallEventDTO roomEvent = callService.createCallRoom(chatId, user.getId(), callType);
+            
+            // Отправляем уведомление о создании комнаты всем участникам чата
+            Chat chat = chatRepository.findByIdWithParticipants(chatId);
+            if (chat != null) {
+                for (User participant : chat.getParticipants()) {
+                    webSocketService.sendPrivateMessageToUser(
+                        participant.getUsername(),
+                        roomEvent
+                    );
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error creating call room: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Приглашает пользователя в комнату
+     */
+    @MessageMapping("/call/room/invite")
+    public void inviteToRoom(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received room invite request: {}", payload);
+            
+            String roomId = payload.get("roomId").toString();
+            Long inviteeId = Long.valueOf(payload.get("inviteeId").toString());
+            
+            // Отправляем приглашение
+            callService.inviteToRoom(roomId, user.getId(), inviteeId);
+            
+        } catch (Exception e) {
+            logger.error("Error inviting to room: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Присоединяется к комнате
+     */
+    @MessageMapping("/call/room/join")
+    public void joinRoom(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received room join request: {}", payload);
+            
+            String roomId = payload.get("roomId").toString();
+            
+            // Присоединяемся к комнате
+            callService.joinRoom(roomId, user.getId());
+            
+        } catch (Exception e) {
+            logger.error("Error joining room: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Покидает комнату
+     */
+    @MessageMapping("/call/room/leave")
+    public void leaveRoom(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received room leave request: {}", payload);
+            
+            String roomId = payload.get("roomId").toString();
+            
+            // Покидаем комнату
+            callService.leaveRoom(roomId, user.getId());
+            
+        } catch (Exception e) {
+            logger.error("Error leaving room: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Получает информацию о комнате для звонка в чате
+     */
+    @MessageMapping("/call/room/info")
+    public void getRoomInfo(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received room info request: {}", payload);
+            
+            Long chatId = Long.valueOf(payload.get("chatId").toString());
+            
+            // Получаем информацию о комнате
+            CallRoom room = callService.getRoomByChat(chatId);
+            
+            // Создаем ответ
+            CallEventDTO roomInfoEvent;
+            
+            if (room != null) {
+                // Комната существует
+                roomInfoEvent = new CallEventDTO(
+                    CallEventType.ROOM_INFO,
+                    chatId,
+                    null,
+                    room.getCreatorId(),
+                    room.getCreatorName(),
+                    room.getCallType()
+                );
+                
+                roomInfoEvent.addToPayload("roomId", room.getRoomId());
+                roomInfoEvent.addToPayload("exists", true);
+                roomInfoEvent.addToPayload("isGroupCall", room.isGroupCall());
+                room.getParticipants().forEach(roomInfoEvent::addParticipant);
+            } else {
+                // Комнаты нет
+                roomInfoEvent = new CallEventDTO(
+                    CallEventType.ROOM_INFO,
+                    chatId,
+                    null,
+                    user.getId(),
+                    user.getName(),
+                    null
+                );
+                
+                roomInfoEvent.addToPayload("exists", false);
+            }
+            
+            // Отправляем ответ пользователю
+            webSocketService.sendPrivateMessageToUser(
+                user.getUsername(),
+                roomInfoEvent
+            );
+        } catch (Exception e) {
+            logger.error("Error getting room info: {}", e.getMessage(), e);
         }
     }
 } 
