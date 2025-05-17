@@ -11,6 +11,7 @@ public enum CallEventType {
     CALL_ENDED,         // Call has ended
     CALL_REJECTED,      // Call was rejected
     CALL_MISSED,        // Call was not answered
+    CALL_ACCEPTED,      // Call was accepted, ready to exchange SDP offer/answer
     
     // Notifications
     CALL_NOTIFICATION,  // For group chats - notification about active call

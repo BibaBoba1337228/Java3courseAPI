@@ -54,6 +54,82 @@ public class CallWebSocketController {
             String callTypeStr = payload.get("callType").toString();
             CallType callType = CallType.valueOf(callTypeStr.toUpperCase());
             
+            // Создаем звонок без SDP offer - первая фаза сигнализации
+            CallEventDTO callEvent = callService.startCall(chatId, user.getId(), callType);
+            
+            // Отправляем уведомление инициатору с callId через его приватную очередь
+            // Это гарантирует, что инициатор получит callId до того, как начнет отправлять ICE кандидаты
+            CallEventDTO initiatorNotification = new CallEventDTO();
+            initiatorNotification.setType(CallEventType.CALL_NOTIFICATION);
+            initiatorNotification.setChatId(chatId);
+            initiatorNotification.setCallId(callEvent.getCallId());
+            initiatorNotification.setSenderId(user.getId());
+            initiatorNotification.setSenderName(user.getName());
+            initiatorNotification.setCallType(callType);
+            initiatorNotification.addParticipant(user.getId(), true);
+            
+            logger.info("Sending call notification to initiator: {}", user.getName());
+            webSocketService.sendPrivateMessageToUser(
+                user.getUsername(),
+                initiatorNotification
+            );
+            
+            // Для прямых и групповых чатов, отправляем уведомление всем участникам через приватные очереди
+            Chat chat = chatRepository.findByIdWithParticipants(chatId);
+            if (chat != null) {
+                for (User participant : chat.getParticipants()) {
+                    if (!participant.getId().equals(user.getId())) {
+                        logger.info("Sending call notification to chat member: {}", participant.getName());
+                        webSocketService.sendPrivateMessageToUser(
+                            participant.getUsername(),
+                            callEvent
+                        );
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error processing call start: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Handles call acceptance before SDP exchange
+     */
+    @MessageMapping("/call/accept")
+    public void acceptCall(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received call acceptance: {}", payload);
+            
+            Long chatId = Long.valueOf(payload.get("chatId").toString());
+            Long callId = Long.valueOf(payload.get("callId").toString());
+            
+            // Create the call accept event
+            CallEventDTO callEvent = new CallEventDTO();
+            callEvent.setType(CallEventType.CALL_ACCEPTED);
+            callEvent.setChatId(chatId);
+            callEvent.setCallId(callId);
+            callEvent.setSenderId(user.getId());
+            callEvent.setSenderName(user.getName());
+            
+            // Mark this user as having accepted the call
+            callService.processCallAcceptance(callEvent);
+            
+        } catch (Exception e) {
+            logger.error("Error processing call acceptance: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Handles WebRTC offer after call acceptance
+     */
+    @MessageMapping("/call/offer")
+    public void sendOffer(@Payload Map<String, Object> payload, @AuthenticationPrincipal User user) {
+        try {
+            logger.info("Received call offer: {}", payload);
+            
+            Long chatId = Long.valueOf(payload.get("chatId").toString());
+            Long callId = Long.valueOf(payload.get("callId").toString());
+            
             // Поддержка разных форматов SDP offer
             String sdpOffer = null;
             if (payload.containsKey("sdp")) {
@@ -67,45 +143,24 @@ public class CallWebSocketController {
                 }
             }
             
-            CallEventDTO callEvent = callService.startCall(chatId, user.getId(), callType);
-            
-            // Отправляем уведомление инициатору с callId через его приватную очередь
-            // Это гарантирует, что инициатор получит callId до того, как начнет отправлять ICE кандидаты
-            CallEventDTO initiatorNotification = new CallEventDTO();
-            initiatorNotification.setType(CallEventType.CALL_NOTIFICATION);
-            initiatorNotification.setChatId(chatId);
-            initiatorNotification.setCallId(callEvent.getCallId());
-            initiatorNotification.setSenderId(user.getId());
-            initiatorNotification.setSenderName(user.getName());
-            initiatorNotification.addParticipant(user.getId(), true);
-            
-            logger.info("Sending call notification to initiator: {}", user.getName());
-            webSocketService.sendPrivateMessageToUser(
-                user.getUsername(),
-                initiatorNotification
-            );
-            
-            // If this is a direct chat, immediately send offer to the recipient
-            if (sdpOffer != null) {
-                callEvent.addToPayload("sdp", sdpOffer);
-                callService.processCallOffer(callEvent, sdpOffer);
-            } else if (callEvent.getType() == CallEventType.CALL_NOTIFICATION) {
-                // Для групповых чатов, отправляем уведомление всем участникам через приватные очереди
-                Chat chat = chatRepository.findByIdWithParticipants(chatId);
-                if (chat != null) {
-                    for (User participant : chat.getParticipants()) {
-                        if (!participant.getId().equals(user.getId())) {
-                            logger.info("Sending call notification to group member: {}", participant.getName());
-                            webSocketService.sendPrivateMessageToUser(
-                                participant.getUsername(),
-                                callEvent
-                            );
-                        }
-                    }
-                }
+            if (sdpOffer == null) {
+                logger.error("No SDP offer found in payload");
+                return;
             }
+            
+            // Create the call offer event
+            CallEventDTO callEvent = new CallEventDTO();
+            callEvent.setType(CallEventType.OFFER);
+            callEvent.setChatId(chatId);
+            callEvent.setCallId(callId);
+            callEvent.setSenderId(user.getId());
+            callEvent.setSenderName(user.getName());
+            
+            // Process the offer through the call service
+            callService.processCallOffer(callEvent, sdpOffer);
+            
         } catch (Exception e) {
-            logger.error("Error processing call start: {}", e.getMessage(), e);
+            logger.error("Error processing call offer: {}", e.getMessage(), e);
         }
     }
     

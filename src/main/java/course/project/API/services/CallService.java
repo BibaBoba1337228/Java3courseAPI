@@ -117,9 +117,9 @@ public class CallService {
         activeCalls.put(callId, newCall);
         chatToCallMap.put(chatId, callId);
         
-        // Create the call event
+        // Create the call event - always use CALL_NOTIFICATION in two-phase signaling
         CallEventDTO callEvent = new CallEventDTO(
-            isGroupChat ? CallEventType.CALL_NOTIFICATION : CallEventType.OFFER,
+            CallEventType.CALL_NOTIFICATION,
             chatId,
             callId,
             initiatorId,
@@ -130,28 +130,8 @@ public class CallService {
         // Add initiator as participant
         callEvent.addParticipant(initiatorId, true);
         
-        logger.info("[CALL {}] Created new call: chatId={}, isGroupCall={}", 
-                    callId, chatId, isGroupChat);
-        
-        // Отправить уведомление инициатору через приватную очередь, чтобы он гарантированно 
-        // получил callId до того, как начнет отправлять ICE кандидаты
-        CallEventDTO initiatorNotification = new CallEventDTO(
-            CallEventType.CALL_NOTIFICATION,
-            chatId,
-            callId,
-            initiatorId,
-            initiator.getName(),
-            callType
-        );
-        initiatorNotification.addParticipant(initiatorId, true);
-        
-        logger.info("[CALL {}] Sending call notification to initiator {}", callId, initiatorId);
-        
-        // Используем WebSocketService вместо messagingTemplate
-        webSocketService.sendPrivateMessageToUser(
-            initiator.getUsername(),
-            initiatorNotification
-        );
+        logger.info("[CALL {}] Created new call: chatId={}, isGroupCall={}, callType={}", 
+                    callId, chatId, isGroupChat, callType);
         
         return callEvent;
     }
@@ -615,5 +595,56 @@ public class CallService {
         
         // Используем существующий метод для рассылки всем участникам, кроме отправителя
         broadcastToCallParticipantsExcept(call, event, excludeUserId);
+    }
+    
+    /**
+     * Processes a call acceptance event (before SDP exchange)
+     */
+    public void processCallAcceptance(CallEventDTO callEvent) {
+        Long chatId = callEvent.getChatId();
+        Long callId = callEvent.getCallId();
+        Long responderId = callEvent.getSenderId();
+        
+        logger.info("[CALL {}] Processing call acceptance in chat {} from user {}", 
+                   callId, chatId, responderId);
+        
+        // Get the active call
+        ActiveCall activeCall = findActiveCall(callId, chatId);
+        if (activeCall == null) {
+            logger.error("[CALL {}] Active call not found for acceptance. Sending CALL_ENDED to client", callId);
+            sendCallEndedEvent(callId, chatId, responderId);
+            return;
+        }
+        
+        // Mark user as active participant
+        activeCall.addParticipant(responderId);
+        
+        // In a direct chat, notify the initiator that the call was accepted
+        if (!activeCall.isGroupCall()) {
+            Long initiatorId = activeCall.getInitiatorId();
+            User initiator = userRepository.findById(initiatorId).orElse(null);
+            User responder = userRepository.findById(responderId).orElse(null);
+            
+            if (initiator != null && responder != null) {
+                logger.info("[CALL {}] Sending call acceptance to initiator {} from {} (username: {})", 
+                           callId, initiatorId, responderId, responder.getName());
+                
+                try {
+                    webSocketService.sendPrivateMessageToUser(
+                        initiator.getUsername(),
+                        callEvent
+                    );
+                    logger.info("[CALL {}] Successfully sent acceptance to initiator via WebSocketService", callId);
+                } catch (Exception e) {
+                    logger.error("[CALL {}] Error sending acceptance to initiator: {}", 
+                                callId, e.getMessage(), e);
+                }
+            } else {
+                logger.error("[CALL {}] Initiator or responder user not found", callId);
+            }
+        } else {
+            // For group calls, broadcast acceptance to all participants
+            broadcastToCallParticipants(activeCall, callEvent);
+        }
     }
 } 
