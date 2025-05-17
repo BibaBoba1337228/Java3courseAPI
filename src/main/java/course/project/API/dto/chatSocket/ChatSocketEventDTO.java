@@ -1,9 +1,8 @@
 package course.project.API.dto.chatSocket;
 
-import course.project.API.dto.chat.ChatWithLastMessageDTO;
-import course.project.API.dto.chat.EditedMessageDTO;
-import course.project.API.dto.chat.MessageDTO;
-import course.project.API.dto.chat.SendMessageDTO;
+import course.project.API.dto.SimpleDTO;
+import course.project.API.dto.chat.*;
+import course.project.API.dto.user.UserResponse;
 
 import java.time.LocalDateTime;
 
@@ -11,12 +10,20 @@ public class ChatSocketEventDTO {
     private String type;
     private Long chatId;
     private Object payload;
+    private Long initiatorId;
 
 
     public ChatSocketEventDTO(String type, Long chatId, Object payload) {
         this.type = type;
         this.chatId = chatId;
         this.payload = payload;
+    }
+
+    public ChatSocketEventDTO(String type, Long chatId, Object payload, Long initiatorId) {
+        this.type = type;
+        this.chatId = chatId;
+        this.payload = payload;
+        this.initiatorId = initiatorId;
     }
 
     public static final String NEW_MESSAGE = "NEW_MESSAGE";
@@ -27,6 +34,7 @@ public class ChatSocketEventDTO {
     public static final String MESSAGE_EDITED = "MESSAGE_EDITED";
     public static final String MESSAGE_READED = "MESSAGE_READED";
     public static final String CHAT_CREATED = "CHAT_CREATED";
+    public static final String CHAT_DELETED = "CHAT_DELETED";
 
     public String getType() {
         return type;
@@ -52,21 +60,32 @@ public class ChatSocketEventDTO {
         this.payload = payload;
     }
 
+    public Long getInitiatorId() {
+        return initiatorId;
+    }
+
+    public void setInitiatorId(Long initiatorId) {
+        this.initiatorId = initiatorId;
+    }
 
     public static ChatSocketEventDTO newMessage(Long chatId, MessageDTO message) {
         return new ChatSocketEventDTO(NEW_MESSAGE, chatId, message);
     }
 
-    public static ChatSocketEventDTO userRoleChanged(Long chatId, UserRoleChangedPayload payload) {
-        return new ChatSocketEventDTO(USER_ROLE_CHANGED, chatId, payload);
+    public static ChatSocketEventDTO userRoleChanged(Long chatId, UserRoleChangedPayload payload, Long initiatorId) {
+        return new ChatSocketEventDTO(USER_ROLE_CHANGED, chatId, payload, initiatorId);
     }
 
-    public static ChatSocketEventDTO userRemoved(Long chatId, UserActionPayload payload) {
-        return new ChatSocketEventDTO(USER_REMOVED, chatId, payload);
+    public static ChatSocketEventDTO userRemoved(Long chatId, Long payload, Long initiatorId) {
+        return new ChatSocketEventDTO(USER_REMOVED, chatId, payload, initiatorId);
     }
 
-    public static ChatSocketEventDTO userAdded(Long chatId, UserActionPayload payload) {
-        return new ChatSocketEventDTO(USER_ADDED, chatId, payload);
+    public static ChatSocketEventDTO userAdded(Long chatId, UserResponse payload, Long initiatorId) {
+        return new ChatSocketEventDTO(USER_ADDED, chatId, payload, initiatorId);
+    }
+
+    public static ChatSocketEventDTO userAddedDirectPayload(ChatDTO payload) {
+        return new ChatSocketEventDTO(USER_ADDED, payload.getId(), payload);
     }
 
     public static ChatSocketEventDTO messageDeleted(Long chatId, MessageActionPayload payload) {
@@ -81,8 +100,12 @@ public class ChatSocketEventDTO {
         return new ChatSocketEventDTO(MESSAGE_READED, chatId, payload);
     }
 
-    public static ChatSocketEventDTO chatCreated(ChatWithLastMessageDTO payload) {
-        return new ChatSocketEventDTO(CHAT_CREATED, payload.getId(), payload);
+    public static ChatSocketEventDTO chatDeleted(Long chatId, Long initiatorId) {
+        return new ChatSocketEventDTO(CHAT_DELETED, chatId, initiatorId);
     }
 
+
+    public static ChatSocketEventDTO chatCreated(ChatWithLastMessageDTO payload, Long initiatorId) {
+        return new ChatSocketEventDTO(CHAT_CREATED, payload.getId(), payload, initiatorId);
+    }
 } 

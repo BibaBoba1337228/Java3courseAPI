@@ -1,13 +1,12 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.EditedMessageDTO;
-import course.project.API.dto.chat.SendMessageDTO;
 import course.project.API.dto.chatSocket.*;
 import course.project.API.dto.chat.MessageDTO;
-import course.project.API.models.Chat;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.ChatRole;
 import course.project.API.models.User;
-import course.project.API.services.ChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,12 +22,10 @@ import java.util.List;
 public class ChatWebSocketController {
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketController.class);
     private final SimpMessagingTemplate messagingTemplate;
-    private final ChatService chatService;
 
     @Autowired
-    public ChatWebSocketController(SimpMessagingTemplate messagingTemplate, ChatService chatService) {
+    public ChatWebSocketController(SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;
-        this.chatService = chatService;
     }
 
     public ChatSocketEventDTO broadcastNewMessage(Long chatId, MessageDTO message) {
@@ -51,33 +48,35 @@ public class ChatWebSocketController {
         }
     }
 
-    public void broadcastUserRoleChanged(Long chatId, Long userId, String userName, ChatRole newRole) {
+    public void broadcastUserRoleChanged(Long chatId, Long userId, ChatRole newRole, Long initiatorId) {
         try {
-            UserRoleChangedPayload payload = new UserRoleChangedPayload(userId, userName, newRole);
-            ChatSocketEventDTO event = ChatSocketEventDTO.userRoleChanged(chatId, payload);
+            UserRoleChangedPayload payload = new UserRoleChangedPayload(userId, newRole);
+            ChatSocketEventDTO event = ChatSocketEventDTO.userRoleChanged(chatId, payload, initiatorId);
             broadcastToChatParticipants(chatId, event);
         } catch (Exception e) {
             logger.error("Error broadcasting user role change for chat {}: {}", chatId, e.getMessage(), e);
         }
     }
 
-    public void broadcastUserRemoved(Long chatId, Long userId, String userName, String avatarURL) {
+    public ChatSocketEventDTO broadcastUserRemoved(Long chatId, Long userId, Long initiatorId) {
         try {
-            UserActionPayload payload = new UserActionPayload(userId, userName, avatarURL);
-            ChatSocketEventDTO event = ChatSocketEventDTO.userRemoved(chatId, payload);
+            ChatSocketEventDTO event = ChatSocketEventDTO.userRemoved(chatId, userId, initiatorId);
             broadcastToChatParticipants(chatId, event);
+            return event;
         } catch (Exception e) {
             logger.error("Error broadcasting user removal from chat {}: {}", chatId, e.getMessage(), e);
+            return null;
         }
     }
 
-    public void broadcastUserAdded(Long chatId, Long userId, String userName, String avatarURL) {
+    public ChatSocketEventDTO broadcastUserAdded(Long chatId, UserResponse user, Long initiatorId) {
         try {
-            UserActionPayload payload = new UserActionPayload(userId, userName, avatarURL);
-            ChatSocketEventDTO event = ChatSocketEventDTO.userAdded(chatId, payload);
+            ChatSocketEventDTO event = ChatSocketEventDTO.userAdded(chatId, user, initiatorId);
             broadcastToChatParticipants(chatId, event);
+            return event;
         } catch (Exception e) {
             logger.error("Error broadcasting user addition to chat {}: {}", chatId, e.getMessage(), e);
+            return null;
         }
     }
 

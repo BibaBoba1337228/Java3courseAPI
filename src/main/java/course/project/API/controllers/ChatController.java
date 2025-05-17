@@ -4,9 +4,11 @@ import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.chat.*;
 import course.project.API.dto.chatSocket.ChatSocketEventDTO;
 import course.project.API.dto.chatSocket.MessageReadedDTO;
+import course.project.API.dto.user.UserResponse;
 import course.project.API.models.*;
 import course.project.API.repositories.ChatRepository;
 import course.project.API.repositories.MessageRepository;
+import course.project.API.repositories.UserRepository;
 import course.project.API.services.ChatService;
 import course.project.API.services.MessageService;
 import course.project.API.services.WebSocketService;
@@ -43,19 +45,20 @@ public class ChatController {
     private final ChatWebSocketController chatWebSocketController;
     private final WebSocketService webSocketService;
     private final MessageRepository messageRepository;
+    private final UserRepository userRepository;
 
     @Autowired
     public ChatController(ChatService chatService, MessageService messageService, ChatRepository chatRepository,
                           ChatWebSocketController chatWebSocketController, WebSocketService webSocketService,
-                          MessageRepository messageRepository) {
+                          MessageRepository messageRepository, UserRepository userRepository) {
         this.chatService = chatService;
         this.messageService = messageService;
         this.chatRepository = chatRepository;
         this.chatWebSocketController = chatWebSocketController;
         this.webSocketService = webSocketService;
         this.messageRepository = messageRepository;
+        this.userRepository = userRepository;
     }
-
 
 
     @PostMapping("/personal")
@@ -68,7 +71,7 @@ public class ChatController {
             if (chat == null) {
                 return ResponseEntity.status(400).body(new SimpleDTO("Такой чат уже есть"));
             }
-            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO());
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO(), currentUser.getId());
 
             webSocketService.sendPrivateMessageToUser(chat.getUsers().get(0).getUsername(), event);
             return ResponseEntity.ok(chat.getChatWithLastMessageDTO());
@@ -88,7 +91,7 @@ public class ChatController {
             if (chat == null) {
                 return ResponseEntity.status(400).body(new SimpleDTO("Добавляются фантомные пользователи"));
             }
-            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO());
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(chat.getChatWithLastMessageDTO(), currentUser.getId());
             for (User user : chat.getUsers()) {
                 webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
             }
@@ -104,25 +107,21 @@ public class ChatController {
             @PathVariable Long chatId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            ChatRole role = chatService.getParticipantRole(chatId, currentUser.getId());
+            ChatRole role = chatRepository.findChatRoleByChatIdAndUserId(chatId, currentUser.getId());
             if (role != ChatRole.OWNER) {
                 return ResponseEntity.status(403).build();
             }
+
+            Chat chat = chatRepository.findByIdWithParticipants(chatId);
+            Set<User> participants = chat.getParticipants();
             chatService.deleteChat(chatId);
+
+            for (User user : participants) {
+                webSocketService.sendPrivateMessageToUser(user.getUsername(), ChatSocketEventDTO.chatDeleted(chatId, currentUser.getId()));
+            }
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             logger.error("Error deleting chat: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @GetMapping
-    public ResponseEntity<List<ChatDTO>> getMyChats(@AuthenticationPrincipal User currentUser) {
-        try {
-            List<ChatDTO> chats = chatService.getUserChats(currentUser.getId());
-            return ResponseEntity.ok(chats);
-        } catch (Exception e) {
-            logger.error("Error getting user chats: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
@@ -134,33 +133,40 @@ public class ChatController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            Optional<Chat> chatOpt = chatRepository.findById(chatId);
-            if (chatOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (userOpt.isEmpty()){
+                return ResponseEntity.status(404).body(new SimpleDTO("Пользователь не найден"));
+            }
+            User user = userOpt.get();
+            ChatRole initiatorRole = chatRepository.findChatRoleByChatIdAndUserId(chatId, currentUser.getId());
+
+            if (initiatorRole == null || initiatorRole == ChatRole.MEMBER) {
+                return ResponseEntity.status(403).build();
             }
 
-            Chat chat = chatOpt.get();
-            if (!chat.isGroupChat()){
-                return ResponseEntity.status(418).build();
+            ChatRole role = chatRepository.findChatRoleByChatIdAndUserId(chatId, userId);
+            if (role != null) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Пользователь уже является учатсником чата"));
             }
+            chatRepository.addParticipantMemberRole(chatId, userId);
+            chatRepository.addParticipant(chatId, userId);
+            Chat chat = chatRepository.findById(chatId).get();
+            ChatDTO chatDTO = new ChatDTO();
+            chatDTO.setName(chat.getName());
+            chatDTO.setId(chatId);
 
-            ChatRole role = chatService.getParticipantRole(chatId, currentUser.getId());
-            if (role != ChatRole.OWNER &&  role != ChatRole.MODERATOR) {
-                return ResponseEntity.status(403).body(new SimpleDTO("You don't have permission to add participants"));
-            }
+            chatService.notifyAddParticipant(
+                    chatId,
+                    new UserResponse(
+                            user.getId(),
+                            user.getName(),
+                            user.getAvatarURL()
+                    ),
+                    user.getUsername(),
+                    currentUser.getId(),
+                    chatDTO
+            );
 
-            if (!chatService.isGroupChat(chatId)) {
-                return ResponseEntity.badRequest().body(new SimpleDTO("Cannot add participants to a direct chat"));
-            }
-
-            User newUser = chatService.getUserById(userId);
-            
-            chatService.addParticipant(chatId, userId, ChatRole.MEMBER);
-            
-            if (newUser != null) {
-                chatWebSocketController.broadcastUserAdded(chatId, newUser.getId(), newUser.getName(), newUser.getAvatarURL());
-            }
-            
             return ResponseEntity.ok(new SimpleDTO("Participant added successfully"));
         } catch (Exception e) {
             logger.error("Error adding participant: {}", e.getMessage());
@@ -174,39 +180,36 @@ public class ChatController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            Optional<Chat> chatOpt = chatRepository.findById(chatId);
-            if (chatOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+
+            ChatRole initiatorRole = chatRepository.findChatRoleByChatIdAndUserId(chatId, currentUser.getId());
+            if (initiatorRole == null || initiatorRole == ChatRole.MEMBER) {
+                return ResponseEntity.status(403).build();
             }
 
-            Chat chat = chatOpt.get();
-            if (!chat.isGroupChat()){
-                return ResponseEntity.status(418).build();
+            List<Object[]> result = chatRepository.findChatRoleJoinUsernameByChatIdAndUserId(chatId, userId);
+            if (result.isEmpty()) {
+                return ResponseEntity.status(400).body("Нельзя выгнать того кого нету в чате");
             }
 
-            ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
-            ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
+            ChatRole targetParticipantRole = ChatRole.valueOf((String) result.get(0)[0]);
 
             if ((targetParticipantRole == ChatRole.MODERATOR) && initiatorRole != ChatRole.OWNER) {
-                return ResponseEntity.status(403).body(new SimpleDTO("Only owner can remove admins and moderators"));
-            }
-
-            if (targetParticipantRole == ChatRole.MEMBER && initiatorRole != ChatRole.OWNER && initiatorRole != ChatRole.MODERATOR) {
-                return ResponseEntity.status(403).body(new SimpleDTO("You don't have permission to remove participants"));
+                return ResponseEntity.status(403).body(new SimpleDTO("Только владелец может выгнать модератора"));
             }
 
             if (targetParticipantRole == ChatRole.OWNER) {
-                return ResponseEntity.badRequest().body(new SimpleDTO("Cannot remove chat owner"));
+                return ResponseEntity.badRequest().body(new SimpleDTO("Владельца нельзя выгнать =)"));
             }
 
-            User removedUser = chatService.getUserById(userId);
-            
-            chatService.removeParticipant(chatId, userId);
-            
-            if (removedUser != null) {
-                chatWebSocketController.broadcastUserRemoved(chatId, removedUser.getId(), removedUser.getName(), removedUser.getAvatarURL());
+            if (chatRepository.existsChatParticipantByChatIdAndUserId(chatId, userId) == 0) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Пользователь не состоит в чате"));
             }
-            
+
+            chatRepository.deleteParticipantByUserIdAndChatId(chatId, userId);
+            chatRepository.deleteParticipantRightByUserIdAndChatId(chatId, userId);
+            chatRepository.deleteMessagesByUserIdAndChatId(chatId, userId);
+            chatService.notifyRemoveParticipant(chatId, userId, (String) result.get(0)[1], currentUser.getId());
+
             return ResponseEntity.ok(new SimpleDTO("Participant removed successfully"));
         } catch (Exception e) {
             logger.error("Error removing participant: {}", e.getMessage());
@@ -221,39 +224,31 @@ public class ChatController {
             @RequestBody ChatRole newRole,
             @AuthenticationPrincipal User currentUser) {
         try {
-            Optional<Chat> chatOpt = chatRepository.findById(chatId);
-            if (chatOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-            }
 
-            Chat chat = chatOpt.get();
-            if (!chat.isGroupChat()){
-                return ResponseEntity.status(418).build();
+            ChatRole initiatorRole = chatRepository.findChatRoleByChatIdAndUserId(chatId, currentUser.getId());
+            if (initiatorRole == null) {
+                return ResponseEntity.status(403).build();
             }
-
-            ChatRole initiatorRole = chatService.getParticipantRole(chatId, currentUser.getId());
-            ChatRole targetParticipantRole = chatService.getParticipantRole(chatId, userId);
 
             if (initiatorRole != ChatRole.OWNER) {
-                return ResponseEntity.status(403).body(new SimpleDTO("Only owner can change roles"));
-            }
-
-            if (targetParticipantRole == ChatRole.OWNER) {
-                return ResponseEntity.badRequest().body(new SimpleDTO("Cannot change owner's role"));
+                return ResponseEntity.status(403).body(new SimpleDTO("Только владелец может меняять роли"));
             }
 
             if (newRole == ChatRole.OWNER) {
-                return ResponseEntity.badRequest().body(new SimpleDTO("Cannot promote to owner"));
+                return ResponseEntity.badRequest().body(new SimpleDTO("Нельзя повысить пользователя до владельца"));
             }
-            
-            User targetUser = chatService.getUserById(userId);
-            
+
+            ChatRole targetUserRole = chatRepository.findChatRoleByChatIdAndUserId(chatId, currentUser.getId());
+
+            if (targetUserRole == null) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Попытка изменить роль не участника чата"));
+            }
+            if (targetUserRole == newRole) {
+                return ResponseEntity.status(400).body(new SimpleDTO("Пользователь уже обладает ролью " + newRole));
+            }
             chatService.setParticipantRole(chatId, userId, newRole);
-            
-            if (targetUser != null) {
-                chatWebSocketController.broadcastUserRoleChanged(chatId, userId, targetUser.getName(), newRole);
-            }
-            
+
+            chatWebSocketController.broadcastUserRoleChanged(chatId, userId, newRole, currentUser.getId());
             return ResponseEntity.ok(new SimpleDTO("Role changed successfully"));
         } catch (Exception e) {
             logger.error("Error changing participant role: {}", e.getMessage());
@@ -312,7 +307,7 @@ public class ChatController {
             ChatDTO chatDTO = chatService.getNormalizedChat(chat, currentUser.getId());
             message.setChat(chatDTO);
             ChatSocketEventDTO event = chatWebSocketController.broadcastNewMessage(chatId, message);
-            if (event != null){
+            if (event != null) {
                 for (User user : chat.getParticipants()) {
                     webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
                 }
@@ -338,10 +333,10 @@ public class ChatController {
             if (file_info == null) {
                 return ResponseEntity.badRequest().body(new SimpleDTO("Вложение не найдено"));
             }
-            logger.info("file_info size: {}, file_info[0]: {}",file_info.length,file_info[0].toString());
-            String filePath = (String)file_info[0];
-            String fileName = (String)file_info[1];
-            String fileType = (String)file_info[2];
+            logger.info("file_info size: {}, file_info[0]: {}", file_info.length, file_info[0].toString());
+            String filePath = (String) file_info[0];
+            String fileName = (String) file_info[1];
+            String fileType = (String) file_info[2];
 
             logger.info("filePath {}, fileName {}, fileType {}", filePath, fileName, fileType);
 
@@ -368,7 +363,7 @@ public class ChatController {
             @PathVariable Long messageId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            Message message = messageService.getMessageWithAttachmentsByMessageIdAndSenderIdAndChatId(messageId, currentUser.getId() ,chatId);
+            Message message = messageService.getMessageWithAttachmentsByMessageIdAndSenderIdAndChatId(messageId, currentUser.getId(), chatId);
             if (message == null) {
                 return ResponseEntity.status(404).body(new SimpleDTO("Сообщение не найдено"));
             }
@@ -385,7 +380,7 @@ public class ChatController {
             }
 
             chatWebSocketController.broadcastMessageDeleted(chatId, messageId, currentUser.getId());
-            
+
             return ResponseEntity.ok(new SimpleDTO("Message deleted successfully"));
         } catch (Exception e) {
             logger.error("Error deleting message: {}", e.getMessage());
@@ -405,9 +400,9 @@ public class ChatController {
                 return ResponseEntity.status(404).body(new SimpleDTO("Сообщение не найдено"));
             }
             messageService.editMessage(message, request);
-            
+
             chatWebSocketController.broadcastMessageEdited(chatId, new EditedMessageDTO(message.getContent(), currentUser.getId(), messageId));
-            
+
             return ResponseEntity.ok(new SimpleDTO("Сообщение обновлено"));
         } catch (Exception e) {
             logger.error("Error editing message: {}", e.getMessage());
@@ -422,7 +417,7 @@ public class ChatController {
             @AuthenticationPrincipal User currentUser) {
         try {
 
-            if(!chatService.isParticipant(chatId, currentUser.getId())) {
+            if (!chatService.isParticipant(chatId, currentUser.getId())) {
                 return ResponseEntity.status(403).build();
             }
 
@@ -494,14 +489,14 @@ public class ChatController {
             if (!chatService.isParticipant(chatId, currentUser.getId())) {
                 return ResponseEntity.status(403).build();
             }
-            
+
             Page<MessageDTO> messagePage = messageService.getChatMessagesWithOffset(chatId, offset, limit);
-            
+
             MessagePageDTO response = new MessagePageDTO(
-                messagePage.getContent(),
-                messagePage.hasNext()
+                    messagePage.getContent(),
+                    messagePage.hasNext()
             );
-            
+
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error getting paginated messages: {}", e.getMessage());
@@ -510,5 +505,4 @@ public class ChatController {
     }
 
 
-
-} 
+}

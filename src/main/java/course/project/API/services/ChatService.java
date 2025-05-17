@@ -1,6 +1,8 @@
 package course.project.API.services;
 
+import course.project.API.controllers.ChatWebSocketController;
 import course.project.API.dto.chat.*;
+import course.project.API.dto.chatSocket.ChatSocketEventDTO;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.models.Chat;
 import course.project.API.models.ChatRole;
@@ -33,21 +35,26 @@ public class ChatService {
     private static final Logger logger = LoggerFactory.getLogger(ChatService.class);
     private final MessageRepository messageRepository;
     private final EntityManager entityManager;
+    private final ChatWebSocketController chatWebSocketController;
+    private final WebSocketService webSocketService;
+
     @Autowired
-    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper, MessageRepository messageRepository, EntityManager entityManager) {
+    public ChatService(ChatRepository chatRepository, UserRepository userRepository, ModelMapper modelMapper, MessageRepository messageRepository, EntityManager entityManager, ChatWebSocketController chatWebSocketController, WebSocketService webSocketService) {
         this.chatRepository = chatRepository;
         this.userRepository = userRepository;
         this.modelMapper = modelMapper;
         this.messageRepository = messageRepository;
         this.entityManager = entityManager;
+        this.chatWebSocketController = chatWebSocketController;
+        this.webSocketService = webSocketService;
     }
 
     @Transactional
     public WrapperChatWithLastMessageDTOForController createPersonalChat(Long participantId, User currentUser) {
         logger.info("Создание персонального чата");
         if (chatRepository.existsPersonalChatBetweenUsers(currentUser.getId(), participantId) == 1) {
-                logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), participantId);
-                return null;
+            logger.info("Личный чат между пользователями {} и {} уже существует", currentUser.getId(), participantId);
+            return null;
         }
         Optional<User> participantOpt = userRepository.findById(participantId);
         if (participantOpt.isEmpty()) {
@@ -117,57 +124,32 @@ public class ChatService {
         return new WrapperChatWithLastMessageDTOForController(createdChat, users);
     }
 
-    public Object[] getMessageAttachementFilePath(Long chatId, Long messageId, Long attachmentId){
-        return (Object[])messageRepository.findMessageAttachementFilePathByChatIdAndMessageIdAndAttachementId(chatId, messageId, attachmentId);
+    public Object[] getMessageAttachementFilePath(Long chatId, Long messageId, Long attachmentId) {
+        return (Object[]) messageRepository.findMessageAttachementFilePathByChatIdAndMessageIdAndAttachementId(chatId, messageId, attachmentId);
     }
 
     @Transactional
     public void deleteChat(Long chatId) {
         Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+                .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
         chatRepository.delete(chat);
-    }
-
-    public List<ChatDTO> getUserChats(Long userId) {
-        List<Chat> chats = chatRepository.findByParticipantsId(userId);
-        return chats.stream()
-            .map(chat -> modelMapper.map(chat, ChatDTO.class))
-            .collect(Collectors.toList());
-    }
-
-    public ChatDTO getChatById(Long chatId) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        return modelMapper.map(chat, ChatDTO.class);
     }
 
     public boolean isParticipant(Long chatId, Long userId) {
         return chatRepository.existsByIdAndParticipantsId(chatId, userId);
     }
 
-    public ChatRole getParticipantRole(Long chatId, Long userId) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        return chat.getUserRoles().getOrDefault(userId, null);
-    }
-
-    public boolean isGroupChat(Long chatId) {
-        Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        return chat.isGroupChat();
-    }
-
     @Transactional
     public void addParticipant(Long chatId, Long userId, ChatRole role) {
         Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        
+                .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+
         if (!chat.isGroupChat()) {
             throw new IllegalStateException("Cannot add participants to a direct chat");
         }
 
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
+                .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
 
         if (chat.getParticipants().contains(user)) {
             throw new IllegalStateException("User is already a participant");
@@ -181,10 +163,10 @@ public class ChatService {
     @Transactional
     public void removeParticipant(Long chatId, Long userId) {
         Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+                .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
 
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
+                .orElseThrow(() -> new EntityNotFoundException("User not found: " + userId));
 
         if (!chat.getParticipants().contains(user)) {
             throw new IllegalStateException("User is not a participant");
@@ -202,7 +184,7 @@ public class ChatService {
     @Transactional
     public void setParticipantRole(Long chatId, Long userId, ChatRole newRole) {
         Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+                .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
 
         if (!chat.getParticipants().stream().anyMatch(p -> p.getId().equals(userId))) {
             throw new IllegalStateException("User is not a participant");
@@ -314,48 +296,40 @@ public class ChatService {
 
     public ChatWithParticipantsDTO getChatWithParticipants(Long chatId, Long currentUserId) {
         Chat chat = chatRepository.findById(chatId)
-            .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
-        
+                .orElseThrow(() -> new EntityNotFoundException("Chat not found: " + chatId));
+
         String chatName = chat.getName();
         String chatAvatarURL = null;
         if (!chat.isGroupChat()) {
             User companion = chat.getParticipants().stream()
-                .filter(u -> !u.getId().equals(currentUserId))
-                .findFirst()
-                .orElse(null);
-                
+                    .filter(u -> !u.getId().equals(currentUserId))
+                    .findFirst()
+                    .orElse(null);
+
             if (companion != null) {
                 chatName = companion.getName();
                 chatAvatarURL = companion.getAvatarURL();
             }
         }
-        
+
         List<ParticipantDTO> participantDTOs = chat.getParticipants().stream()
-            .map(user -> new ParticipantDTO(
-                user.getId(),
-                user.getName(),
-                user.getAvatarURL(),
-                chat.getUserRoles().get(user.getId())
-            ))
-            .collect(Collectors.toList());
-        
+                .map(user -> new ParticipantDTO(
+                        user.getId(),
+                        user.getName(),
+                        user.getAvatarURL(),
+                        chat.getUserRoles().get(user.getId())
+                ))
+                .collect(Collectors.toList());
+
         return new ChatWithParticipantsDTO(
-            chat.getId(),
-            chatName,
-            chat.isGroupChat(),
-            chatAvatarURL,
-            participantDTOs
+                chat.getId(),
+                chatName,
+                chat.isGroupChat(),
+                chatAvatarURL,
+                participantDTOs
         );
     }
 
-    public Chat getChatEntityById(Long chatId) {
-        return chatRepository.findById(chatId).orElse(null);
-    }
-
-
-    public User getUserById(Long userId) {
-        return userRepository.findById(userId).orElse(null);
-    }
 
     // Групповые чаты напрямую содержат аву, а личные нет, надо достать имя и аватарку юзера и поставить их на место чата
     public ChatDTO getNormalizedChat(Chat chat, Long userId) {
@@ -363,7 +337,7 @@ public class ChatService {
         ChatDTO chatDTO = new ChatDTO();
         chatDTO.setId(chat.getId());
 
-        if (chat.isGroupChat()){
+        if (chat.isGroupChat()) {
             chatDTO.setName(chat.getName());
             chatDTO.setAvatarURL(null);
             return chatDTO;
@@ -382,7 +356,20 @@ public class ChatService {
             logger.error("Чето явно не так, в чате(" + chat.getId() + "не нашелся компаньон пользователя: " + userId);
             throw new EntityNotFoundException("Чето явно не так, в чате(" + chat.getId() + "не нашелся компаньон пользователя: " + userId);
         }
-
         return chatDTO;
+    }
+
+    public void notifyAddParticipant(Long chatId, UserResponse user, String username, Long initiatorId, ChatDTO chatDTO) {
+        ChatSocketEventDTO event = chatWebSocketController.broadcastUserAdded(chatId, user, initiatorId);
+        if (event != null) {
+            webSocketService.sendPrivateMessageToUser(username, ChatSocketEventDTO.userAddedDirectPayload(chatDTO));
+        }
+    }
+
+    public void notifyRemoveParticipant(Long chatId, Long userId, String participantUsername, Long initiatorId) {
+        ChatSocketEventDTO event = chatWebSocketController.broadcastUserRemoved(chatId, userId, initiatorId);
+        if (event != null) {
+            webSocketService.sendPrivateMessageToUser(participantUsername, event);
+        }
     }
 }
