@@ -5,6 +5,7 @@ import course.project.API.dto.board.*;
 import course.project.API.dto.board.BoardWithColumnsDTO;
 import course.project.API.models.*;
 import course.project.API.repositories.*;
+import jakarta.persistence.EntityManager;
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,11 +42,13 @@ public class BoardService {
     private final ModelMapper modelMapper;
     private static final Logger logger = LoggerFactory.getLogger(BoardService.class);
     private final TaskRepository taskRepository;
+    private final ProjectRightService projectRightService;
+    private final EntityManager entityManager;
     @Autowired
     public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository,
                         UserRepository userRepository, TagRepository tagRepository,
                         DashBoardColumnRepository dashboardColumnRepository,
-                        ModelMapper modelMapper, TaskRepository taskRepository) {
+                        ModelMapper modelMapper, TaskRepository taskRepository, ProjectRightService projectRightService, EntityManager entityManager) {
         this.boardRepository = boardRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
@@ -53,6 +56,8 @@ public class BoardService {
         this.dashboardColumnRepository = dashboardColumnRepository;
         this.modelMapper = modelMapper;
         this.taskRepository = taskRepository;
+        this.projectRightService = projectRightService;
+        this.entityManager = entityManager;
     }
 
     public List<BoardDTO> getAllBoards() {
@@ -464,38 +469,37 @@ public class BoardService {
     @Transactional
     public int addUserToAllProjectBoards(Long projectId, Long userId) {
         try {
-            // Проверяем существование пользователя и проекта
-            var user = userRepository.findById(userId)
-                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с ID: " + userId));
-                
-            var project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new NoSuchElementException("Проект не найден с ID: " + projectId));
-            
-            // Проверяем, что пользователь является участником проекта
-            if (!project.getParticipants().contains(user) && !project.getOwner().equals(user)) {
-                throw new IllegalArgumentException("Пользователь не является участником проекта");
-            }
-            
-            // Проверяем проектные права пользователя
-            boolean hasBoardRightsPermission = project.getUserRights().stream()
-                .anyMatch(r -> r.getUser().equals(user) && 
-                           r.getRight() == ProjectRight.MANAGE_BOARD_RIGHTS);
-            
-            boolean hasAccessPermission = project.getUserRights().stream()
-                .anyMatch(r -> r.getUser().equals(user) && 
-                           r.getRight() == ProjectRight.MANAGE_ACCESS);
-            
+//            // Проверяем существование пользователя и проекта
+//            var user = userRepository.findById(userId)
+//                .orElseThrow(() -> new NoSuchElementException("Пользователь не найден с ID: " + userId));
+//
+//            var project = projectRepository.findById(projectId)
+//                .orElseThrow(() -> new NoSuchElementException("Проект не найден с ID: " + projectId));
+//
+//            // Проверяем, что пользователь является участником проекта
+//            if (!project.getParticipants().contains(user) && !project.getOwner().equals(user)) {
+//                throw new IllegalArgumentException("Пользователь не является участником проекта");
+//            }
+            boolean hasBoardRightsPermission = projectRightService.hasProjectRight(projectId, userId, ProjectRight.MANAGE_BOARD_RIGHTS);
+            boolean hasAccessPermission = projectRightService.hasProjectRight(projectId, userId, ProjectRight.MANAGE_ACCESS);
+//
+//            // Проверяем проектные права пользователя
+//            boolean hasBoardRightsPermission = project.getUserRights().stream()
+//                .anyMatch(r -> r.getUser().equals(user) &&
+//                           r.getRight() == ProjectRight.MANAGE_BOARD_RIGHTS);
+//
+//            boolean hasAccessPermission = project.getUserRights().stream()
+//                .anyMatch(r -> r.getUser().equals(user) &&
+//                           r.getRight() == ProjectRight.MANAGE_ACCESS);
+//
             // Получаем все доски проекта
-            List<Board> boards = boardRepository.findByProjectId(projectId);
-            
-            // Счетчик добавленных досок
+            List<Board> boards = boardRepository.findWithParticipantsByProjectId(projectId);
+            User user = entityManager.getReference(User.class, userId);
+
             int addedCount = 0;
-            
-            // Добавляем пользователя на каждую доску
+
             for (Board board : boards) {
-                // Пропускаем, если пользователь уже участник
                 if (board.getParticipants().contains(user)) {
-                    // Даже если пользователь уже участник, обеспечиваем наличие всех нужных прав
                     if (hasBoardRightsPermission) {
                         board.addUserRight(user, BoardRight.MANAGE_RIGHTS);
                     }
@@ -504,7 +508,6 @@ public class BoardService {
                         board.addUserRight(user, BoardRight.MANAGE_MEMBERS);
                     }
                     
-                    // Сохраняем обновления прав
                     boardRepository.save(board);
                     continue;
                 }

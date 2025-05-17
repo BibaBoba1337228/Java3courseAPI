@@ -23,5 +23,9 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
     Board findWithDetails(@Param("id") Long id);
 
     @EntityGraph(attributePaths = {"participants"})
+    List<Board> findWithParticipantsByProjectId(Long projectId);
+
+
+    @EntityGraph(attributePaths = {"participants"})
     Board findWithParticipantsAndOwnerById(Long id);
 }
