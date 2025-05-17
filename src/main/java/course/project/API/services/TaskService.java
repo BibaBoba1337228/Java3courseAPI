@@ -541,18 +541,18 @@ public class TaskService {
         return task.getParticipants();
     }
     
-    /**
-     * Получает все задачи, в которых пользователь является участником
-     * @param userId ID пользователя
-     * @return список задач пользователя
-     */
-    @Transactional(readOnly = true)
-    public List<Task> getAllUserTasks(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
-        
-        return taskRepository.findByParticipantsContains(user);
-    }
+//    /**
+//     * Получает все задачи, в которых пользователь является участником
+//     * @param userId ID пользователя
+//     * @return список задач пользователя
+//     */
+//    @Transactional(readOnly = true)
+//    public List<Task> getAllUserTasks(Long userId) {
+//        User user = userRepository.findById(userId)
+//                .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
+//
+//        return taskRepository.findByParticipantsContains(user);
+//    }
     
     /**
      * Получает все задачи пользователя по его ID (альтернативная реализация через запрос)
@@ -649,6 +649,7 @@ public class TaskService {
                 ));
                 continue;
             }
+            task = new TaskDTO();
 
             task.setId(taskId);
             task.setColumnId((Long) row[1]);
@@ -667,7 +668,6 @@ public class TaskService {
                     (String) row[7],
                     (String) row[8]
             ));
-            task = new TaskDTO();
             task.setParticipants(new HashSet<>());
             if (userId != null ) task.getParticipants().add(new UserResponse(
                     userId,

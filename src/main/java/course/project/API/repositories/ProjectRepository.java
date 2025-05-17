@@ -3,6 +3,7 @@ package course.project.API.repositories;
 import course.project.API.models.Project;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -25,6 +26,10 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
 
     @EntityGraph(attributePaths = {"participants", "owner"})
     Optional<Project> findProjectWithParticipantsOwnerById(Long id);
+
+    @Modifying
+    @Query(value = "INSERT INTO project_participants (project_id, user_id) VALUES (:projectId, :userId)", nativeQuery = true)
+    void addUserToProject(@Param("projectId") Long projectId, @Param("userId") Long userId);
 
     @Query(value = """
             SELECT p.id, pur.right_name  FROM projects p

@@ -61,12 +61,7 @@ public class BoardController {
             @AuthenticationPrincipal User currentUser) {
         
         try {
- 
-            
-            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
-                return ResponseEntity.status(403).body(null);
-            }
-            
+
             List<BoardWithParticipantsDTO> allBoards = boardService.getBoardsByProjectId(projectId);
             List<BoardWithParticipantsDTO> userBoards = new ArrayList<>();
             
@@ -83,44 +78,21 @@ public class BoardController {
         }
     }
 
-    class ErrorResponse {
-        private String error;
-        public ErrorResponse(String error) { this.error = error; }
-        public String getError() { return error; }
-        public void setError(String error) { this.error = error; }
-    }
-
     @GetMapping("/{boardId}")
     public ResponseEntity<?> getBoardById(
             @PathVariable Long boardId,
             @AuthenticationPrincipal User currentUser) {
         try {
-            Optional<BoardDTO> boardOpt = boardService.getBoardById(boardId);
-            if (boardOpt.isEmpty()) {
-                return ResponseEntity.status(404).body(new ErrorResponse("Board not found"));
-            }
-            
-            Long projectId = boardOpt.get().getProjectId();
-            if (projectId == null) {
-                return ResponseEntity.status(400).body(new ErrorResponse("Project ID is null"));
-            }
-            
-
-            
-            // Проверяем право доступа к проекту
-            if (!projectRightService.hasProjectRight(projectId, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
-                return ResponseEntity.status(403).body(new ErrorResponse("Access denied: no project rights"));
-            }
-            
-            // Проверяем право доступа к доске
             if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
-                return ResponseEntity.status(403).body(new ErrorResponse("Access denied: no board rights"));
+                return ResponseEntity.status(403).body(new SimpleDTO("Access denied: no board rights"));
             }
-            
-            return ResponseEntity.ok(boardService.getBoardWithDetails(boardId));
+
+            BoardWithColumnsDTO board = boardService.getBoardWithDetails(boardId);
+
+            return ResponseEntity.ok(board);
         } catch (Exception e) {
             System.err.println("Error in getBoardById: " + e.getMessage());
-            return ResponseEntity.status(400).body(new ErrorResponse("Internal error: " + e.getMessage()));
+            return ResponseEntity.status(400).body(new SimpleDTO("Internal error: " + e.getMessage()));
         }
     }
 

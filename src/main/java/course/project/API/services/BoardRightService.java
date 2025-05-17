@@ -147,47 +147,11 @@ public class BoardRightService {
     public boolean hasBoardRight(Long boardId, Long userId, BoardRight right) {
         try {
             System.out.println("Checking right " + right + " for user " + userId + " on board " + boardId);
-            
-            Board board = boardRepository.findById(boardId)
-                    .orElseThrow(() -> new RuntimeException("Board not found with id: " + boardId));
-            
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-            
-            // Project owner has all rights to all boards
-            if (board.getProject().getOwner().equals(user)) {
-                System.out.println("User is project owner, granting all rights");
-                return true;
-            }
-            
-            // Check if user is a participant in the board
-            boolean isParticipant = board.getParticipants().contains(user);
-            if (!isParticipant) {
-                // Not a participant, no rights on this board
-                System.out.println("User is not a participant in the board");
-                return false;
-            }
-            
-            // For VIEW_BOARD right, being a participant is enough
-            if (right == BoardRight.VIEW_BOARD) {
-                System.out.println("VIEW_BOARD permission granted to participant");
-                return true;
-            }
-            
-            // For other rights, check specific permissions
-            boolean hasRight = board.hasRight(user, right);
+            boolean hasRight = boardUserRightRepository.existsByBoardIdAndUserIdAndRight(boardId, userId, right);
             System.out.println("User has specific right " + right + ": " + hasRight);
-            
-            // Debug print all rights
-            List<BoardUserRight> userRights = boardUserRightRepository.findByBoardAndUser(board, user);
-            Set<BoardRight> rights = userRights.stream()
-                    .map(BoardUserRight::getRight)
-                    .collect(Collectors.toSet());
-            System.out.println("All user rights on this board: " + rights);
-            
+
             return hasRight;
         } catch (Exception e) {
-            // Log error and gracefully handle it
             System.err.println("Error checking board right: " + e.getMessage());
             e.printStackTrace();
             return false;

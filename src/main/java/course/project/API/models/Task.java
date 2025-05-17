@@ -45,6 +45,9 @@ public class Task {
     @JoinColumn(name = "tag_id")
     private Tag tag;
 
+    @Column(name="tag_id", insertable=false, updatable=false)
+    private Long tagId;
+
     @OneToMany(mappedBy = "task", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private List<ChecklistItem> checklist = new ArrayList<>();
@@ -184,4 +187,12 @@ public class Task {
         attachments.remove(attachment);
         attachment.setTask(null);
     }
-} 
+
+    public Long getTagId() {
+        return tagId;
+    }
+
+    public void setTagId(Long tagId) {
+        this.tagId = tagId;
+    }
+}

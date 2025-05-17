@@ -21,7 +21,6 @@ public class TaskHistory {
     @JoinColumn(name = "user_id")
     private User user;
     
-    // Make task_id nullable so we can keep history records even when tasks are deleted
     @Column(name = "task_id", nullable = true)
     private Long taskId;
     

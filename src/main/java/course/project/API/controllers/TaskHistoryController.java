@@ -43,7 +43,6 @@ public class TaskHistoryController {
             @PathVariable Long taskId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check if task exists
         Task task = taskService.getTaskById(taskId).orElse(null);
         if (task == null) {
             return ResponseEntity.notFound().build();
@@ -51,7 +50,6 @@ public class TaskHistoryController {
         
         Long boardId = task.getColumn().getBoard().getId();
         
-        // Check user permissions (VIEW_BOARD right)
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
             return ResponseEntity.status(403).build();
         }
@@ -69,7 +67,6 @@ public class TaskHistoryController {
             @PathVariable Long boardId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Check user permissions (VIEW_BOARD right)
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.VIEW_BOARD)) {
             return ResponseEntity.status(403).build();
         }

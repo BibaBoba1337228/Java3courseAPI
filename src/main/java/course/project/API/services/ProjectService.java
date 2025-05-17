@@ -1,17 +1,12 @@
 package course.project.API.services;
 
+import course.project.API.dto.invitation.InvitationWithRecipientDTO;
 import course.project.API.dto.project.ProjectDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerDTO;
 import course.project.API.dto.project.ProjectWithParticipantsOwnerInvitationsDTO;
 import course.project.API.dto.user.UserResponse;
-import course.project.API.models.Project;
-import course.project.API.models.User;
-import course.project.API.models.Board;
-import course.project.API.models.DashBoardColumn;
-import course.project.API.repositories.ProjectRepository;
-import course.project.API.repositories.UserRepository;
-import course.project.API.repositories.InvitationRepository;
-import course.project.API.repositories.BoardRepository;
+import course.project.API.models.*;
+import course.project.API.repositories.*;
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Transactional(readOnly = true)
 @Service
 public class ProjectService {
     private final ProjectRepository projectRepository;
@@ -31,15 +27,17 @@ public class ProjectService {
     private final ProjectRightService projectRightService;
     private final BoardRepository boardRepository;
     private static final Logger logger = LoggerFactory.getLogger(ProjectService.class);
+    private final ProjectUserRightRepository projectUserRightRepository;
 
     @Autowired
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper, ProjectRightService projectRightService, BoardRepository boardRepository) {
+    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository, InvitationRepository invitationRepository, ModelMapper modelMapper, ProjectRightService projectRightService, BoardRepository boardRepository, ProjectUserRightRepository projectUserRightRepository) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.invitationRepository = invitationRepository;
         this.modelMapper = modelMapper;
         this.projectRightService = projectRightService;
         this.boardRepository = boardRepository;
+        this.projectUserRightRepository = projectUserRightRepository;
     }
 
     public List<ProjectDTO> getAllProjects() {
@@ -53,11 +51,49 @@ public class ProjectService {
                 .map(project -> modelMapper.map(project, ProjectDTO.class));
     }
 
-    public Optional<ProjectWithParticipantsOwnerInvitationsDTO> getProjectWithParticipantsOwnerInvitationsById(Long id) {
-        return projectRepository.findProjectWithParticipantsOwnerById(id)
-                .map(project -> modelMapper.map(project, ProjectWithParticipantsOwnerInvitationsDTO.class));
+    public ProjectWithParticipantsOwnerInvitationsDTO getProjectWithParticipantsOwnerInvitationsById(Long id) {
+        Optional<Project> projectOpt = projectRepository.findProjectWithParticipantsOwnerById(id);
+        if (projectOpt.isEmpty()) {
+            return null;
+        }
+        List<Invitation> invitations = invitationRepository.findByProjectIdAndStatus(id, InvitationStatus.PENDING);
+
+        Project project = projectOpt.get();
+        ProjectWithParticipantsOwnerInvitationsDTO projectDto = new ProjectWithParticipantsOwnerInvitationsDTO();
+        projectDto.setId(project.getId());
+        projectDto.setTitle(project.getTitle());
+        projectDto.setDescription(project.getDescription());
+        projectDto.setEmoji(project.getEmoji());
+        User owner = project.getOwner();
+        projectDto.setOwner(new UserResponse(
+                owner.getId(),
+                owner.getName(),
+                owner.getAvatarURL()
+        ));
+
+        projectDto.setParticipants(new HashSet<>());
+        for (User user : project.getParticipants()) {
+            projectDto.getParticipants().add(new UserResponse(user.getId(), user.getName(), user.getAvatarURL()));
+        }
+
+        projectDto.setInvitations(new HashSet<>());
+        for (Invitation invitation : invitations ) {
+            InvitationWithRecipientDTO invitationDto = new InvitationWithRecipientDTO();
+            invitationDto.setId(invitation.getId());
+            invitationDto.setStatus(InvitationStatus.PENDING);
+            invitationDto.setProjectId(id);
+            invitationDto.setCreatedAt(invitation.getCreatedAt());
+            invitationDto.setRecipient(new UserResponse(
+                    invitation.getRecipient().getId(),
+                    invitation.getRecipient().getName(),
+                    invitation.getRecipient().getAvatarURL()
+            ));
+            projectDto.getInvitations().add(invitationDto);
+
+        }
+        return projectDto;
     }
-    @Transactional(readOnly = true)
+
     public List<ProjectWithParticipantsOwnerDTO> getMyProjectsWithUsers(User currentUser) {
         logger.info("Достаю проекты с овнером и участниками");
         List<Project> projects = projectRepository.findByOwner_IdOrParticipants_Id(currentUser.getId(), currentUser.getId());
@@ -160,20 +196,8 @@ public class ProjectService {
     @Transactional
     public boolean addParticipant(Long projectId, Long userId) {
         try {
-            Optional<Project> projectOpt = projectRepository.findById(projectId);
-            if (projectOpt.isEmpty()) {
-                return false;
-            }
-            
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                return false;
-            }
-            
-            Project project = projectOpt.get();
-            User user = userOpt.get();
-            
-            project.addParticipant(user);
+            projectRepository.addUserToProject(projectId, userId);
+            projectUserRightRepository.addUserProjectRight(projectId, userId, ProjectRight.VIEW_PROJECT.toString());
             return true;
         } catch (Exception e) {
             System.err.println("Error adding participant: " + e.getMessage());

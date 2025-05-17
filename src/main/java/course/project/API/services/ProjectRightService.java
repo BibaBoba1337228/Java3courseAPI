@@ -9,14 +9,17 @@ import course.project.API.models.User;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.ProjectUserRightRepository;
 import course.project.API.repositories.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Transactional(readOnly = true)
 @Service
 public class ProjectRightService {
 
@@ -24,16 +27,17 @@ public class ProjectRightService {
     private final UserRepository userRepository;
     private final ProjectUserRightRepository projectUserRightRepository;
     private final BoardService boardService;
-
+    private final EntityManager entityManager;
     @Autowired
     public ProjectRightService(ProjectRepository projectRepository,
-                          UserRepository userRepository,
-                          ProjectUserRightRepository projectUserRightRepository,
-                          @Lazy BoardService boardService) {
+                               UserRepository userRepository,
+                               ProjectUserRightRepository projectUserRightRepository,
+                               @Lazy BoardService boardService, EntityManager entityManager) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.projectUserRightRepository = projectUserRightRepository;
         this.boardService = boardService;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -168,19 +172,7 @@ public class ProjectRightService {
      * Get all rights for a user in a project
      */
     public Set<ProjectRight> getUserProjectRights(Long projectId, Long userId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-        
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-        
-        // Project owner has all rights
-        if (project.getOwner().equals(user)) {
-            return new HashSet<>(Arrays.asList(ProjectRight.values()));
-        }
-        
-        // Get user's rights
-        List<ProjectUserRight> userRights = projectUserRightRepository.findByProjectAndUser(project, user);
+        List<ProjectUserRight> userRights = projectUserRightRepository.findByProjectIdAndUserId(projectId, userId);
         return userRights.stream()
                 .map(ProjectUserRight::getRight)
                 .collect(Collectors.toSet());
@@ -191,25 +183,8 @@ public class ProjectRightService {
      */
     public boolean hasProjectRight(Long projectId, Long userId, ProjectRight right) {
         try {
-            Project project = projectRepository.findById(projectId)
-                    .orElseThrow(() -> new RuntimeException("Project not found with id: " + projectId));
-            
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-            
-            // Project owner has all rights
-            if (project.getOwner().equals(user)) {
-                return true;
-            }
-            
-            // Project participant checking for VIEW_PROJECT right
-            if (right == ProjectRight.VIEW_PROJECT && project.getParticipants().contains(user)) {
-                return true;
-            }
-            
-            return project.hasRight(user, right);
+            return projectUserRightRepository.existsByProjectIdAndUserIdAndRight(projectId, userId, right);
         } catch (Exception e) {
-            // Log error and gracefully handle it
             System.err.println("Error checking project right: " + e.getMessage());
             return false;
         }
@@ -236,11 +211,6 @@ public class ProjectRightService {
         
         // Rights will be automatically removed by the cascade
     }
-
-
-    
-    
-    
 
 
     /**

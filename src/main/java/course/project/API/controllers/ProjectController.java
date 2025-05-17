@@ -49,29 +49,17 @@ public class ProjectController {
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
         try {
-            logger.info("Getting project with ID: {}", id);
-            Optional<ProjectWithParticipantsOwnerInvitationsDTO> projectOpt = projectService.getProjectWithParticipantsOwnerInvitationsById(id);
-            if (projectOpt.isEmpty()) {
-                logger.warn("Project not found for ID: {}", id);
-                return ResponseEntity.notFound().build();
-            }
-
             if (!projectRightService.hasProjectRight(id, currentUser.getId(), ProjectRight.VIEW_PROJECT)) {
                 logger.warn("User {} doesn't have rights to view project: {}", currentUser.getUsername(), id);
                 return ResponseEntity.status(403).body(null);
             }
 
-            ProjectWithParticipantsOwnerInvitationsDTO project = projectOpt.get();
-            if (!project.getInvitations().isEmpty()) {
-                logger.info("First participant is a {}", project.getInvitations().iterator().next().getClass().getName());
+            logger.info("Getting project with ID: {}", id);
+            ProjectWithParticipantsOwnerInvitationsDTO project = projectService.getProjectWithParticipantsOwnerInvitationsById(id);
+            if (project == null) {
+                logger.warn("Project not found for ID: {}", id);
+                return ResponseEntity.notFound().build();
             }
-            
-            // Filter invitations to only include those with PENDING status
-            project.setInvitations(project.getInvitations().stream()
-                .filter(invitation -> invitation.getStatus() == InvitationStatus.PENDING)
-                .collect(Collectors.toSet()));
-            
-            logger.info("Returning project DTO: {}, ID: {}", project.getClass().getName(), project.getId());
 
             return ResponseEntity.ok(project);
         } catch (Exception e) {

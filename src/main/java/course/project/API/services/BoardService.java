@@ -3,15 +3,7 @@ package course.project.API.services;
 import course.project.API.dto.SimpleDTO;
 import course.project.API.dto.board.*;
 import course.project.API.dto.board.BoardWithColumnsDTO;
-import course.project.API.models.Board;
-import course.project.API.models.BoardRight;
-import course.project.API.models.DashBoardColumn;
-import course.project.API.models.Project;
-import course.project.API.models.ProjectRight;
-import course.project.API.models.ProjectUserRight;
-import course.project.API.models.Tag;
-import course.project.API.models.Task;
-import course.project.API.models.User;
+import course.project.API.models.*;
 import course.project.API.repositories.*;
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
@@ -29,6 +21,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.dto.board.ColumnWithTasksDTO;
@@ -47,18 +40,19 @@ public class BoardService {
     private final DashBoardColumnRepository dashboardColumnRepository;
     private final ModelMapper modelMapper;
     private static final Logger logger = LoggerFactory.getLogger(BoardService.class);
-
+    private final TaskRepository taskRepository;
     @Autowired
-    public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository, 
+    public BoardService(BoardRepository boardRepository, ProjectRepository projectRepository,
                         UserRepository userRepository, TagRepository tagRepository,
                         DashBoardColumnRepository dashboardColumnRepository,
-                        ModelMapper modelMapper) {
+                        ModelMapper modelMapper, TaskRepository taskRepository) {
         this.boardRepository = boardRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.tagRepository = tagRepository;
         this.dashboardColumnRepository = dashboardColumnRepository;
         this.modelMapper = modelMapper;
+        this.taskRepository = taskRepository;
     }
 
     public List<BoardDTO> getAllBoards() {
@@ -317,131 +311,117 @@ public class BoardService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<BoardWithColumnsDTO> getBoardWithDetails(Long id) {
-        return boardRepository.findById(id)
-                .map(board -> {
-                    BoardWithColumnsDTO dto = new BoardWithColumnsDTO();
-                    dto.setId(board.getId());
-                    dto.setTitle(board.getTitle());
-                    dto.setDescription(board.getDescription());
-                    dto.setEmoji(board.getEmoji());
-                    dto.setProjectId(board.getProject() != null ? board.getProject().getId() : null);
+    public BoardWithColumnsDTO getBoardWithDetails(Long id) {
+        Board board = boardRepository.findWithDetails(id);
+        Board boardWithParticipants = boardRepository.findWithParticipantsAndOwnerById(id);
+        List<Long> tasksIds = board.getColumns().stream().flatMap(column -> column.getTasks().stream()).map(Task::getId).toList();
+        Map<Long, Set<User>> taskParticipantsMap = taskRepository.findWithParticipantsByIdIn(tasksIds).stream().collect(Collectors.toMap(Task::getId, Task::getParticipants));
+        Map<Long, List<ChecklistItem>> taskCheckListMap = taskRepository.findWithCheckListByIdIn(tasksIds).stream().collect(Collectors.toMap(Task::getId, Task::getChecklist));
 
-                    // Преобразуем участников
-                    Set<UserResponse> participants = board.getParticipants().stream()
-                        .map(user -> new UserResponse(
-                                user.getId(),
-                                user.getName(),
-                                user.getAvatarURL()
-                        ))
-                        .collect(Collectors.toSet());
-                    dto.setParticipants(participants);
+        Set<TagDTO> tags = board.getTags().stream()
+                .map(tag -> {
+                    TagDTO tagDto = new TagDTO(tag.getId(), tag.getName(), tag.getColor(), board.getId());
+                    return tagDto;
+                })
+                .collect(Collectors.toSet());
+        Map<Long, TagDTO> tagsMap = tags.stream().collect(Collectors.toMap(TagDTO::getId, Function.identity()));
 
-                    // Преобразуем колонки и сортируем их по position
-                    List<ColumnWithTasksDTO> columns = board.getColumns().stream()
-                        .sorted(Comparator.comparing(DashBoardColumn::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
-                        .map(column -> {
-                            ColumnWithTasksDTO colDto = new ColumnWithTasksDTO();
-                            colDto.setId(column.getId());
-                            colDto.setName(column.getName());
-                            colDto.setBoardId(board.getId());
-                            colDto.setPosition(column.getPosition());
-                            colDto.setCompletionColumn(column.isCompletionColumn());
-                            
-                            // Загружаем задачи для колонки и сортируем их по позиции
-                            Set<TaskDTO> tasks = column.getTasks().stream()
-                                .sorted(Comparator.comparing(Task::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
-                                .map(task -> {
-                                    TaskDTO taskDto = new TaskDTO();
-                                    taskDto.setId(task.getId());
-                                    taskDto.setTitle(task.getTitle());
-                                    taskDto.setDescription(task.getDescription());
-                                    taskDto.setColumnId(column.getId());
-                                    taskDto.setPosition(task.getPosition());
-                                    
-                                    // Добавляем даты, если они есть
-                                    if (task.getStartDate() != null) {
-                                        taskDto.setStartDate(task.getStartDate());
-                                    }
-                                    if (task.getEndDate() != null) {
-                                        taskDto.setEndDate(task.getEndDate());
-                                    }
-                                    
-                                    // Добавляем тег, если он есть
-                                    if (task.getTag() != null) {
-                                        TagDTO tagDto = new TagDTO(
-                                            task.getTag().getId(),
-                                            task.getTag().getName(),
-                                            task.getTag().getColor(),
-                                            board.getId()
-                                        );
-                                        taskDto.setTag(tagDto);
-                                    }
-                                    
-                                    // Добавляем участников задачи
-                                    Set<UserResponse> taskParticipants = task.getParticipants().stream()
-                                        .map(participant -> new UserResponse(
-                                            participant.getId(),
-                                            participant.getName(),
-                                            participant.getAvatarURL()
-                                        ))
-                                        .collect(Collectors.toSet());
-                                    taskDto.setParticipants(taskParticipants);
+        BoardWithColumnsDTO dto = new BoardWithColumnsDTO();
+        dto.setId(board.getId());
+        dto.setTitle(board.getTitle());
+        dto.setDescription(board.getDescription());
+        dto.setEmoji(board.getEmoji());
+        dto.setProjectId(board.getProject() != null ? board.getProject().getId() : null);
+        dto.setTags(tags);
 
-                                    // Convert checklist items to ChecklistItemDTO
-                                    List<ChecklistItemDTO> checklistItems = task.getChecklist().stream()
-                                        .map(item -> new ChecklistItemDTO(
-                                            item.getId(),
-                                            item.getText(),
-                                            item.isCompleted(),
-                                            item.getPosition()
-                                        ))
-                                        .collect(Collectors.toList());
-                                    taskDto.setChecklist(checklistItems);
-                                    
-                                    // Convert attachments to AttachmentDTO
-                                    List<AttachmentDTO> attachmentDTOs = task.getAttachments().stream()
-                                        .map(attachment -> {
-                                            AttachmentDTO attachmentDto = new AttachmentDTO(
-                                                attachment.getId(),
-                                                attachment.getFileName(),
-                                                null, // Don't expose file path to client
-                                                attachment.getFileType(),
-                                                attachment.getFileSize(),
-                                                attachment.getUploadedBy(),
-                                                attachment.getUploadedAt()
-                                            );
-                                            // Set download URL
-                                            attachmentDto.setDownloadUrl("http://localhost:8080/api/attachments/" + attachment.getId() + "/download");
-                                            return attachmentDto;
-                                        })
-                                        .collect(Collectors.toList());
-                                    taskDto.setAttachments(attachmentDTOs);
-                                    
-                                    return taskDto;
-                                })
-                                .collect(Collectors.toSet());
-                            
-                            colDto.setTasks(tasks);
-                            return colDto;
-                        })
-                        .collect(Collectors.toList());
-                    dto.setColumns(columns);
+        Set<UserResponse> participants = boardWithParticipants.getParticipants().stream()
+            .map(user -> new UserResponse(
+                    user.getId(),
+                    user.getName(),
+                    user.getAvatarURL()
+            ))
+            .collect(Collectors.toSet());
+        dto.setParticipants(participants);
 
-                    // Преобразуем теги
-                    Set<TagDTO> tags = board.getTags().stream()
-                        .map(tag -> {
-                            TagDTO tagDto = new TagDTO(tag.getId(), tag.getName(), tag.getColor(), board.getId());
-                            return tagDto;
-                        })
-                        .collect(Collectors.toSet());
-                    dto.setTags(tags);
-                    
-                    // Calculate and set completion percentage
-                    dto.setCompletionPercentage(calculateCompletionPercentage(board));
+        List<ColumnWithTasksDTO> columns = board.getColumns().stream()
+            .sorted(Comparator.comparing(DashBoardColumn::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
+            .map(column -> {
+                ColumnWithTasksDTO colDto = new ColumnWithTasksDTO();
+                colDto.setId(column.getId());
+                colDto.setName(column.getName());
+                colDto.setBoardId(board.getId());
+                colDto.setPosition(column.getPosition());
+                colDto.setCompletionColumn(column.isCompletionColumn());
 
-                    return dto;
-                });
+                Set<TaskDTO> tasks = column.getTasks().stream()
+                    .sorted(Comparator.comparing(Task::getPosition, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .map(task -> {
+                        TaskDTO taskDto = new TaskDTO();
+                        taskDto.setId(task.getId());
+                        taskDto.setTitle(task.getTitle());
+                        taskDto.setDescription(task.getDescription());
+                        taskDto.setColumnId(column.getId());
+                        taskDto.setPosition(task.getPosition());
+
+                        if (task.getStartDate() != null) {
+                            taskDto.setStartDate(task.getStartDate());
+                        }
+                        if (task.getEndDate() != null) {
+                            taskDto.setEndDate(task.getEndDate());
+                        }
+
+                        if (task.getTagId() != null) {
+                            taskDto.setTag(tagsMap.get(task.getTagId()));
+                        }
+
+                        Set<UserResponse> taskParticipants = taskParticipantsMap.get(task.getId()).stream()
+                            .map(participant -> new UserResponse(
+                                participant.getId(),
+                                participant.getName(),
+                                participant.getAvatarURL()
+                            ))
+                            .collect(Collectors.toSet());
+                        taskDto.setParticipants(taskParticipants);
+
+                        List<ChecklistItemDTO> checklistItems = taskCheckListMap.get(task.getId()).stream()
+                            .map(item -> new ChecklistItemDTO(
+                                item.getId(),
+                                item.getText(),
+                                item.isCompleted(),
+                                item.getPosition()
+                            ))
+                            .collect(Collectors.toList());
+                        taskDto.setChecklist(checklistItems);
+
+                        List<AttachmentDTO> attachmentDTOs = task.getAttachments().stream()
+                            .map(attachment -> {
+                                AttachmentDTO attachmentDto = new AttachmentDTO(
+                                    attachment.getId(),
+                                    attachment.getFileName(),
+                                    null,
+                                    attachment.getFileType(),
+                                    attachment.getFileSize(),
+                                    attachment.getUploadedBy(),
+                                    attachment.getUploadedAt()
+                                );
+                                attachmentDto.setDownloadUrl("http://localhost:8080/api/attachments/" + attachment.getId() + "/download");
+                                return attachmentDto;
+                            })
+                            .collect(Collectors.toList());
+                        taskDto.setAttachments(attachmentDTOs);
+
+                        return taskDto;
+                    })
+                    .collect(Collectors.toSet());
+
+                colDto.setTasks(tasks);
+                return colDto;
+            })
+            .collect(Collectors.toList());
+        dto.setColumns(columns);
+
+        dto.setCompletionPercentage(calculateCompletionPercentage(board));
+        return dto;
     }
 
     /**
@@ -459,7 +439,6 @@ public class BoardService {
             int columnTaskCount = column.getTasks().size();
             totalTasks += columnTaskCount;
             
-            // If this is the "Done" column, count all its tasks as completed
             if ("Done".equals(column.getName())) {
                 completedTasks += columnTaskCount;
             }

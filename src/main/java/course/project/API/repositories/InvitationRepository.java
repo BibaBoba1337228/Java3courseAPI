@@ -4,6 +4,7 @@ import course.project.API.models.Invitation;
 import course.project.API.models.InvitationStatus;
 import course.project.API.models.Project;
 import course.project.API.models.User;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -19,6 +20,9 @@ public interface InvitationRepository extends JpaRepository<Invitation, Long> {
     List<Invitation> findByProjectAndStatus(Project project, InvitationStatus status);
     List<Invitation> findByProject(Project project);
     void deleteById(long id);
+
+    @EntityGraph(attributePaths = {"recipient"})
+    List<Invitation> findByProjectIdAndStatus(Long projectId, InvitationStatus status);
 
     void deleteAllByProject(Project project);
 } 
