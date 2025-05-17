@@ -326,7 +326,7 @@ public class BoardController {
             notificationPayload.put("initiatedBy", currentUser.getUsername());
             webSocketService.sendMessageToBoard(boardId, "COLUMN_UPDATED", notificationPayload);
             
-            return ResponseEntity.ok(column);
+            return ResponseEntity.ok().build();
         }
         
         return ResponseEntity.badRequest().body(null);

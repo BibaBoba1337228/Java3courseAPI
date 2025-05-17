@@ -657,15 +657,12 @@ public class TaskController {
                 return ResponseEntity.badRequest().body(null);
             }
             
-            // Обновляем участников задачи
             try {
                 updateTaskParticipants(taskId, payload, currentUser);
             } catch (Exception e) {
                 logger.error("Error updating task participants: {}", e.getMessage(), e);
-                // Не прерываем выполнение, продолжаем с другими обновлениями
             }
             
-            // Обновляем чеклист задачи
             try {
                 updateTaskChecklist(taskId, payload);
             } catch (Exception e) {
@@ -673,21 +670,16 @@ public class TaskController {
                 // Не прерываем выполнение при ошибке
             }
             
-            // Get the latest version of the task after all updates
             Task latestTask = taskService.getTaskById(taskId).orElse(updatedTask);
             
-            // Record task update history in a separate transaction
             try {
                 taskHistoryService.recordTaskUpdate(currentUser, oldTask, latestTask);
             } catch (Exception e) {
                 logger.error("Failed to record task update history: {}", e.getMessage(), e);
-                // Continue even if history recording fails
             }
             
-            // Convert to TaskDTO
             TaskDTO taskDTO = convertToTaskDTO(latestTask, boardId);
             
-            // Convert TaskDTO to Map for WebSocket notification
             Map<String, Object> notificationPayload = new HashMap<>();
             notificationPayload.put("id", taskDTO.getId());
             notificationPayload.put("title", taskDTO.getTitle());
@@ -702,7 +694,6 @@ public class TaskController {
             notificationPayload.put("attachments", taskDTO.getAttachments());
             notificationPayload.put("initiatedBy", currentUser.getUsername());
             
-            // Add WebSocket notification
             webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
             
             return ResponseEntity.ok(taskDTO);
@@ -719,11 +710,9 @@ public class TaskController {
             @RequestParam(value = "files", required = false) List<MultipartFile> files,
             @AuthenticationPrincipal User currentUser) {
         try {
-            // Convert JSON string to Map
             ObjectMapper objectMapper = new ObjectMapper();
             Map<String, Object> payload = objectMapper.readValue(payloadStr, new TypeReference<Map<String, Object>>() {});
             
-            // Get the task to check permissions
             Task task = taskService.getTaskById(taskId).orElse(null);
             if (task == null) {
                 return ResponseEntity.notFound().build();
@@ -731,23 +720,19 @@ public class TaskController {
             
             Long boardId = task.getColumn().getBoard().getId();
             
-            // Check if user has EDIT_TASKS right on the board
             if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
                 return ResponseEntity.status(403).body(null);
             }
             
             logger.info("Updating task with ID: {}, payload: {}", taskId, payload);
             
-            // Store the original task for history comparison
             Task oldTask = taskService.cloneTask(task);
             
-            // Обновляем базовую информацию о задаче
             Task updatedTask = updateTaskBasicInfo(taskId, payload, boardId, currentUser);
             if (updatedTask == null) {
                 return ResponseEntity.badRequest().body(null);
             }
             
-            // Обновляем участников задачи
             try {
                 updateTaskParticipants(taskId, payload, currentUser);
             } catch (Exception e) {
@@ -755,7 +740,6 @@ public class TaskController {
                 // Не прерываем выполнение, продолжаем с другими обновлениями
             }
             
-            // Обновляем чеклист задачи
             try {
                 updateTaskChecklist(taskId, payload);
             } catch (Exception e) {
@@ -763,7 +747,6 @@ public class TaskController {
                 // Не прерываем выполнение при ошибке
             }
             
-            // Обработка обновления вложений
             try {
                 updateTaskAttachments(taskId, payload, files, currentUser);
             } catch (Exception e) {
@@ -771,22 +754,17 @@ public class TaskController {
                 // Продолжаем выполнение при ошибке обновления вложений
             }
             
-            // Get the latest version of the task after all updates - важно получить свежие данные из БД
             Task latestTask = taskService.getTaskById(taskId)
                 .orElseThrow(() -> new RuntimeException("Failed to reload task after update"));
             
-            // Record task update history in a separate transaction
             try {
                 taskHistoryService.recordTaskUpdate(currentUser, oldTask, latestTask);
             } catch (Exception e) {
                 logger.error("Failed to record task update history: {}", e.getMessage(), e);
-                // Continue even if history recording fails
             }
             
-            // Convert to TaskDTO
             TaskDTO taskDTO = convertToTaskDTO(latestTask, boardId, true);
             
-            // Convert TaskDTO to Map for WebSocket notification
             Map<String, Object> notificationPayload = new HashMap<>();
             notificationPayload.put("id", taskDTO.getId());
             notificationPayload.put("title", taskDTO.getTitle());
@@ -801,7 +779,6 @@ public class TaskController {
             notificationPayload.put("attachments", taskDTO.getAttachments());
             notificationPayload.put("initiatedBy", currentUser.getUsername());
             
-            // Add WebSocket notification
             webSocketService.sendMessageToBoard(boardId, "TASK_UPDATED", notificationPayload);
             
             return ResponseEntity.ok(taskDTO);
@@ -824,14 +801,12 @@ public class TaskController {
             String startDate = payload.containsKey("startDate") ? safeStringValue(payload.get("startDate")) : null;
             String endDate = payload.containsKey("endDate") ? safeStringValue(payload.get("endDate")) : null;
 
-            // Check if moving to a different column
             Task task = taskService.getTaskById(taskId).orElse(null);
             if (task == null) {
                 return null;
             }
             
             if (columnId != null && !columnId.equals(task.getColumn().getId())) {
-                // Check if user has MOVE_TASKS right
                 if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
                     throw new RuntimeException("User doesn't have permission to move tasks");
                 }
@@ -876,17 +851,14 @@ public class TaskController {
         List<Object> participants = (List<Object>) payload.get("participants");
         logger.info("Processing participants update: {}", participants);
         
-        // Get current participants
         Set<User> currentParticipants = taskService.getTaskParticipants(taskId);
         logger.info("Current participants: {}", currentParticipants.stream().map(User::getId).collect(Collectors.toList()));
         
         List<Long> newParticipantIds = new ArrayList<>();
         List<String> newParticipantUsernames = new ArrayList<>();
         
-        // Process new participants list - добавляем новых участников
         for (Object participant : participants) {
             if (participant instanceof Number) {
-                // If participant is a number (ID)
                 Long userId = ((Number) participant).longValue();
                 newParticipantIds.add(userId);
                 userRepository.findById(userId).ifPresent(user -> {
@@ -900,11 +872,9 @@ public class TaskController {
                     }
                 });
             } else {
-                // If participant is a string or object with username
                 String username = extractUsername(participant);
                 if (username != null) {
                     newParticipantUsernames.add(username);
-                    // Add new participants
                     userRepository.findByUsername(username).ifPresent(user -> {
                         if (!currentParticipants.contains(user)) {
                             try {
@@ -922,7 +892,6 @@ public class TaskController {
         logger.info("New participant IDs: {}", newParticipantIds);
         logger.info("New participant usernames: {}", newParticipantUsernames);
         
-        // Remove participants that are no longer in the list - удаляем отсутствующих участников
         for (User currentParticipant : new ArrayList<>(currentParticipants)) {
             boolean shouldKeep = newParticipantIds.contains(currentParticipant.getId()) || 
                                 newParticipantUsernames.contains(currentParticipant.getUsername());
@@ -1200,7 +1169,7 @@ public class TaskController {
     }
 
     @PutMapping("/{taskId}/move")
-    public ResponseEntity<Task> moveTaskToColumn(
+    public ResponseEntity<?> moveTaskToColumn(
             @PathVariable Long taskId,
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal User currentUser) {
@@ -1210,6 +1179,8 @@ public class TaskController {
         if (task == null) {
             return ResponseEntity.notFound().build();
         }
+
+        logger.info("Пока норм");
         
         Long boardId = task.getColumn().getBoard().getId();
         
@@ -1217,6 +1188,8 @@ public class TaskController {
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.MOVE_TASKS)) {
             return ResponseEntity.status(403).body(null);
         }
+
+        logger.info("Пока норм2");
         
         // Get target column ID (where we're moving the task to)
         Long targetColumnId = safeParseLong(payload.get("targetColumnId"));
@@ -1228,6 +1201,8 @@ public class TaskController {
                 return ResponseEntity.badRequest().build();
             }
         }
+
+        logger.info("Пока норм3");
         
         // Get position in the target column
         Integer position = safeParseInteger(payload.get("newPosition"));
@@ -1241,15 +1216,19 @@ public class TaskController {
         
         logger.info("Moving task {} to column {} at position {}", taskId, targetColumnId, position);
         Task movedTask = taskService.moveTaskToColumn(taskId, targetColumnId, position);
+        logger.info("Пока норм 52");
         if (movedTask != null) {
-            // Add WebSocket notification
             Map<String, Object> notificationPayload = new HashMap<>(payload);
             notificationPayload.put("taskId", taskId);
             notificationPayload.put("initiatedBy", currentUser.getUsername());
+            logger.info("Пока норм5252 сокет");
             webSocketService.sendMessageToBoard(boardId, "TASK_MOVED", notificationPayload);
+            logger.info("Пока норм5252 сокет ок");
             
-            return ResponseEntity.ok(movedTask);
+            return ResponseEntity.ok().build();
         }
+
+        logger.info("Пока норм5252");
         
         return ResponseEntity.badRequest().build();
     }

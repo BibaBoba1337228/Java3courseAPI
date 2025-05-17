@@ -13,8 +13,16 @@ import java.util.Optional;
 
 @Repository
 public interface ProjectRepository extends JpaRepository<Project, Long> {
-    @EntityGraph(attributePaths = {"participants", "owner"})
-    List<Project> findByOwner_IdOrParticipants_Id(Long ownerId, Long participantId);
+
+
+
+    @Query("""
+        SELECT p FROM Project p
+        LEFT JOIN FETCH p.participants pp
+        WHERE p.ownerId = :userId OR pp.id = :userId
+""")
+    List<Project> findProjectsByUserId(@Param("userId") Long userId);
+
 
     boolean existsByOwner_UsernameAndParticipants_Username(String ownerUsername, String participantUsername);
 
@@ -44,8 +52,8 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
 
     @Query("""
             SELECT p FROM Project p
-            JOIN FETCH p.boards b 
-            JOIN FETCH b.columns c JOIN FETCH c.tasks 
+            LEFT JOIN FETCH p.boards b 
+            LEFT JOIN FETCH b.columns c LEFT JOIN FETCH c.tasks 
             WHERE p.id IN :projectIds
             """)
     List<Project> findProjectsByIdsWithBoardsColumnsTasks(@Param("projectIds") List<Long> projectIds);

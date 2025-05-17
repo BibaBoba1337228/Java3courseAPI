@@ -96,11 +96,13 @@ public class ProjectService {
 
     public List<ProjectWithParticipantsOwnerDTO> getMyProjectsWithUsers(User currentUser) {
         logger.info("Достаю проекты с овнером и участниками");
-        List<Project> projects = projectRepository.findByOwner_IdOrParticipants_Id(currentUser.getId(), currentUser.getId());
+        List<Project> projects = projectRepository.findProjectsByUserId(currentUser.getId());
+        logger.info(String.valueOf(projects.size()));
         logger.info("Достаю гига проекты");
         List<Project> gigaProjects = projectRepository.findProjectsByIdsWithBoardsColumnsTasks(
                 projects.stream().map(Project::getId).toList()
         );
+        logger.info(String.valueOf(gigaProjects.size()));
         logger.info("Делаю Map");
         Map<Long, Set<User>> projectsWithParticipants = projects.stream().collect(Collectors.toMap(Project::getId, Project::getParticipants));
         return gigaProjects

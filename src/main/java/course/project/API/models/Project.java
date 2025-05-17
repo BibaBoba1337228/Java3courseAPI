@@ -35,6 +35,9 @@ public class Project {
     @JoinColumn(name = "owner_id")
     private User owner;
 
+    @Column(name="owner_id", insertable=false, updatable=false)
+    private Long ownerId;
+
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
     private Set<Board> boards = new HashSet<>();
