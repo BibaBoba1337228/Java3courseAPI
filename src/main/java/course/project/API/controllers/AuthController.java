@@ -28,14 +28,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final AuthenticationManager authenticationManager;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private ProjectRepository projectRepository;
+    private final UserRepository userRepository;
 
-    public AuthController(AuthService authService, AuthenticationManager authenticationManager) {
+    public AuthController(AuthService authService, AuthenticationManager authenticationManager, UserRepository userRepository) {
         this.authService = authService;
         this.authenticationManager = authenticationManager;
+        this.userRepository = userRepository;
     }
 
     @PostMapping("/register")
@@ -106,19 +104,5 @@ public class AuthController {
         return ResponseEntity.ok("Logged out successfully");
     }
 
-
-
-    @PutMapping("/profile")
-    public ResponseEntity<?> updateProfile(@RequestBody UserResponse profile, Authentication auth) {
-        User user = (User) auth.getPrincipal();
-        user.setName(profile.getName());
-        user.setAvatarURL(profile.getAvatarURL());
-        User updatedUser = authService.updateUser(user);
-        return ResponseEntity.ok(new UserResponse(
-            updatedUser.getId(),
-            updatedUser.getName(),
-            updatedUser.getAvatarURL()
-        ));
-    }
 
 }

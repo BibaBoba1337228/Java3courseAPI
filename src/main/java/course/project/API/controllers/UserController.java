@@ -1,9 +1,12 @@
 package course.project.API.controllers;
 
+import course.project.API.dto.SimpleDTO;
+import course.project.API.dto.user.NameDTO;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.models.User;
 import course.project.API.repositories.ProjectRepository;
 import course.project.API.repositories.UserRepository;
+import course.project.API.services.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -13,13 +16,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,52 +29,65 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/users")
 public class UserController {
     private static final Logger logger = LoggerFactory.getLogger(UserController.class);
-    private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final UserService userService;
 
-    public UserController(ProjectRepository projectRepository, UserRepository userRepository) {
-        this.projectRepository = projectRepository;
+    public UserController(UserRepository userRepository, UserService userService) {
         this.userRepository = userRepository;
+        this.userService = userService;
     }
 
     @GetMapping("/me")
     public ResponseEntity<?> me(Authentication auth) {
         User user = (User) auth.getPrincipal();
+        User userResp = userRepository.findById(user.getId()).orElse(null);
+        if (userResp == null) {
+            return ResponseEntity.status(404).build();
+        }
         return ResponseEntity.ok(new UserResponse(
-                user.getId(),
-                user.getName(),
-                user.getAvatarURL()
+                userResp.getId(),
+                userResp.getName(),
+                userResp.getAvatarURL()
         ));
     }
 
-    @GetMapping("/{username}")
-    public ResponseEntity<UserResponse> getUserByUsername(
-            @PathVariable String username,
-            Principal principal
-    ) {
-        String currentUsername = principal.getName();
-        logger.info("currentUsername: {}, requested: {}", currentUsername, username);
-        logger.info("isOwner: {}", projectRepository.existsByOwner_Username(currentUsername));
-        logger.info("isParticipant: {}", projectRepository.existsByParticipants_Username(currentUsername));
-        var userOpt = userRepository.findByUsername(username).or(() -> userRepository.findByName(username));
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
+    @PutMapping("/me")
+    public ResponseEntity<?> update(@AuthenticationPrincipal User currentUser, @RequestBody NameDTO name){
+        try {
+            userService.updateUserName(currentUser.getId(), name.getName());
+            return ResponseEntity.ok().build();
+        } catch(SQLIntegrityConstraintViolationException e){
+            return ResponseEntity.status(409).body(new SimpleDTO("Имя занято"));
         }
-        var user = userOpt.get();
-        // Если сам себя — всегда можно
-        if (currentUsername.equals(username) || currentUsername.equals(user.getName())) {
-            return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getAvatarURL()));
-        }
-        // Проверка: есть ли общий проект
-        boolean allowed = projectRepository.existsByOwner_UsernameAndParticipants_Username(currentUsername, username)
-                || projectRepository.existsByOwner_UsernameAndParticipants_Username(username, currentUsername)
-                || projectRepository.existsByOwner_Username(currentUsername) && username.equals(currentUsername)
-                || projectRepository.existsByParticipants_Username(currentUsername) && username.equals(currentUsername);
-        if (!allowed) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-        return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getAvatarURL()));
     }
+//    @GetMapping("/{username}")
+//    public ResponseEntity<UserResponse> getUserByUsername(
+//            @PathVariable String username,
+//            Principal principal
+//    ) {
+//        String currentUsername = principal.getName();
+//        logger.info("currentUsername: {}, requested: {}", currentUsername, username);
+//        logger.info("isOwner: {}", projectRepository.existsByOwner_Username(currentUsername));
+//        logger.info("isParticipant: {}", projectRepository.existsByParticipants_Username(currentUsername));
+//        var userOpt = userRepository.findByUsername(username).or(() -> userRepository.findByName(username));
+//        if (userOpt.isEmpty()) {
+//            return ResponseEntity.notFound().build();
+//        }
+//        var user = userOpt.get();
+//        // Если сам себя — всегда можно
+//        if (currentUsername.equals(username) || currentUsername.equals(user.getName())) {
+//            return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getAvatarURL()));
+//        }
+//        // Проверка: есть ли общий проект
+//        boolean allowed = projectRepository.existsByOwner_UsernameAndParticipants_Username(currentUsername, username)
+//                || projectRepository.existsByOwner_UsernameAndParticipants_Username(username, currentUsername)
+//                || projectRepository.existsByOwner_Username(currentUsername) && username.equals(currentUsername)
+//                || projectRepository.existsByParticipants_Username(currentUsername) && username.equals(currentUsername);
+//        if (!allowed) {
+//            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+//        }
+//        return ResponseEntity.ok(new UserResponse(user.getId(), user.getName(), user.getAvatarURL()));
+//    }
 
     @GetMapping("/search")
     public ResponseEntity<?> searchUsers(

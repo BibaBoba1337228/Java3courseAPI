@@ -23,7 +23,7 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private String password;
 
-    @Column
+    @Column(unique = true, nullable = false)
     private String name;
 
     @Column
@@ -32,10 +32,9 @@ public class User implements UserDetails {
     public User() {
     }
 
-    public User(String username, String password) {
+    public User(String username, String password, String name) {
         this.username = username;
         this.password = password;
-        this.name = "user" + (int)(Math.random() * 1000000);
         this.avatarURL = "https://api.dicebear.com/7.x/avataaars/svg?seed=" + username;
     }
 

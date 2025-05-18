@@ -7,6 +7,9 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.SQLIntegrityConstraintViolationException;
 
 @Service
 public class UserService implements UserDetailsService {
@@ -27,4 +30,13 @@ public class UserService implements UserDetailsService {
                     return new UsernameNotFoundException("User not found");
                 });
     }
+
+    @Transactional
+    public void updateUserName(Long userId, String newUsername) throws SQLIntegrityConstraintViolationException {
+        if(userRepository.existsByName(newUsername)){
+            throw new SQLIntegrityConstraintViolationException("Пользователь с такими именем уже есть");
+        }
+        userRepository.updateUserName(userId, newUsername);
+    }
+
 }

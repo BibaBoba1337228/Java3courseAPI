@@ -154,6 +154,7 @@ public class ChatController {
             ChatDTO chatDTO = new ChatDTO();
             chatDTO.setName(chat.getName());
             chatDTO.setId(chatId);
+            chatDTO.setId(chatId);
 
             chatService.notifyAddParticipant(
                     chatId,
