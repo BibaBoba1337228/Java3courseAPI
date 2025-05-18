@@ -29,6 +29,9 @@ public class Task {
     @JsonBackReference
     private DashBoardColumn column;
 
+    @Column(name="column_id", insertable=false, updatable=false)
+    private Long columnId;
+
     @Column
     private LocalDateTime startDate;
 
@@ -49,6 +52,14 @@ public class Task {
 
     @Column(name="tag_id", insertable=false, updatable=false)
     private Long tagId;
+
+    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "chat_id")
+    private Chat chat;
+
+    @Column(name="chat_id", insertable=false, updatable=false)
+    private Long chatId;
+
 
     @OneToMany(mappedBy = "task", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference
@@ -196,5 +207,21 @@ public class Task {
 
     public void setTagId(Long tagId) {
         this.tagId = tagId;
+    }
+
+    public Long getChatId() {
+        return chatId;
+    }
+
+    public Chat getChat() {
+        return chat;
+    }
+
+    public void setChat(Chat chat) {
+        this.chat = chat;
+    }
+
+    public Long getColumnId() {
+        return columnId;
     }
 }

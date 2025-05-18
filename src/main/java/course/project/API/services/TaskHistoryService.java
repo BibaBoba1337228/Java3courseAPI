@@ -41,9 +41,9 @@ public class TaskHistoryService {
                 user,
                 task.getId(),
                 boardId,
-                null, // No old task for creation
+                null,
                 taskJson,
-                taskJson // Use same JSON for snapshot
+                taskJson
             );
             
             taskHistoryRepository.save(history);

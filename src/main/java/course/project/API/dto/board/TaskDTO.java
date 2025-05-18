@@ -21,6 +21,7 @@ public class TaskDTO {
     private TagDTO tag;
     private List<ChecklistItemDTO> checklist;
     private List<AttachmentDTO> attachments;
+    private Long chatId;
     
     public TaskDTO() {
     }
@@ -135,5 +136,13 @@ public class TaskDTO {
     
     public void setAttachments(List<AttachmentDTO> attachments) {
         this.attachments = attachments;
+    }
+
+    public Long getChatId() {
+        return chatId;
+    }
+
+    public void setChatId(Long chatId) {
+        this.chatId = chatId;
     }
 }

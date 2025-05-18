@@ -124,6 +124,37 @@ public class ChatService {
         return new WrapperChatWithLastMessageDTOForController(createdChat, users);
     }
 
+    @Transactional
+    public Chat createGroupChatForTask(CreateGroupChatDTO chatRequest, User currentUser) {
+        logger.info("Создание группового чата");
+
+        Chat chat = new Chat();
+        chat.setIsGroupChat(true);
+        chat.setName(chatRequest.getName());
+        chat.getParticipants().add(currentUser);
+        chat.getUserRoles().put(currentUser.getId(), ChatRole.OWNER);
+        if (chatRequest.getParticipantIds() != null) {
+            List<User> participants = userRepository.findUsersByIds(chatRequest.getParticipantIds());
+            logger.info("Участников: {}", chatRequest.getParticipantIds().size());
+
+            if (participants.size() != chatRequest.getParticipantIds().size()) {
+                logger.error("Не совпало число добавляемых пользователей пришло: {}, из базы взяли: {}", chatRequest.getParticipantIds().size(), participants.size());
+                return null;
+            }
+
+            for (User user : participants) {
+                if (user.getId() == currentUser.getId()) {
+                    continue;
+                }
+                logger.info("Добавляю в чат: {}", user.getId());
+                chat.getParticipants().add(user);
+                chat.getUserRoles().put(user.getId(), ChatRole.MEMBER);
+            }
+        }
+
+        return chatRepository.save(chat);
+    }
+
     public Object[] getMessageAttachementFilePath(Long chatId, Long messageId, Long attachmentId) {
         return (Object[]) messageRepository.findMessageAttachementFilePathByChatIdAndMessageIdAndAttachementId(chatId, messageId, attachmentId);
     }

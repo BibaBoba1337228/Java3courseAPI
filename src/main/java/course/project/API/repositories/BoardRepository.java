@@ -13,6 +13,10 @@ import java.util.List;
 public interface BoardRepository extends JpaRepository<Board, Long> {
     List<Board> findByProjectId(Long projectId);
 
+    @EntityGraph(attributePaths = {"columns"})
+    List<Board> findWithColumnsByProjectId(Long projectId);
+
+
     @Query("""
     SELECT DISTINCT b FROM Board b
     LEFT JOIN FETCH b.columns c

@@ -67,13 +67,14 @@ public class BoardService {
     }
 
     public List<BoardWithParticipantsDTO> getBoardsByProjectId(Long projectId) {
-        return boardRepository.findByProjectId(projectId).stream()
+        Map<Long, Set<User>> users = boardRepository.findWithParticipantsByProjectId(projectId).stream().collect(Collectors.toMap(Board::getId, Board::getParticipants));
+        return boardRepository.findWithColumnsByProjectId(projectId).stream()
                 .map(board -> {
                     BoardDTO boardDTO = modelMapper.map(board, BoardDTO.class);
                     boardDTO.setProjectId(projectId);
                     
                     // Convert participants to a set of UserResponse objects
-                    Set<UserResponse> participants = board.getParticipants().stream()
+                    Set<UserResponse> participants = users.get(board.getId()).stream()
                         .map(user -> modelMapper.map(user, UserResponse.class))
                         .collect(Collectors.toSet());
                     
@@ -367,6 +368,7 @@ public class BoardService {
                         taskDto.setDescription(task.getDescription());
                         taskDto.setColumnId(column.getId());
                         taskDto.setPosition(task.getPosition());
+                        taskDto.setChatId(task.getChatId());
 
                         if (task.getStartDate() != null) {
                             taskDto.setStartDate(task.getStartDate());

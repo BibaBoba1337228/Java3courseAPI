@@ -1,16 +1,19 @@
 package course.project.API.services;
 
-import course.project.API.dto.board.TagDTO;
-import course.project.API.dto.board.TaskDTO;
+import course.project.API.dto.board.*;
+import course.project.API.dto.chat.CreateGroupChatDTO;
 import course.project.API.dto.user.UserResponse;
 import course.project.API.models.*;
 import course.project.API.repositories.*;
+import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -27,24 +30,32 @@ public class TaskService {
     private final UserRepository userRepository;
     private final TagRepository tagRepository;
     public final AttachmentRepository attachmentRepository;
+    private final EntityManager entityManager;
+    private final DashBoardColumnRepository dashBoardColumnRepository;
+    private final BoardRightService boardRightService;
+    private final AttachmentService attachmentService;
     private final TaskHistoryService taskHistoryService;
-    private final TaskHistoryRepository taskHistoryRepository;
+    private final ChatService chatService;
 
     @Autowired
-    public TaskService(TaskRepository taskRepository, 
-                      DashBoardColumnRepository columnRepository,
-                      UserRepository userRepository,
-                      TagRepository tagRepository,
-                      AttachmentRepository attachmentRepository,
-                      TaskHistoryService taskHistoryService,
-                      TaskHistoryRepository taskHistoryRepository) {
+    public TaskService(TaskRepository taskRepository,
+                       DashBoardColumnRepository columnRepository,
+                       UserRepository userRepository,
+                       TagRepository tagRepository,
+                       AttachmentRepository attachmentRepository,
+                       EntityManager entityManager, DashBoardColumnRepository dashBoardColumnRepository, BoardRightService boardRightService,
+                       AttachmentService attachmentService1, TaskHistoryService taskHistoryService, ChatService chatService) {
         this.taskRepository = taskRepository;
         this.columnRepository = columnRepository;
         this.userRepository = userRepository;
         this.tagRepository = tagRepository;
         this.attachmentRepository = attachmentRepository;
+        this.entityManager = entityManager;
+        this.dashBoardColumnRepository = dashBoardColumnRepository;
+        this.boardRightService = boardRightService;
+        this.attachmentService = attachmentService1;
         this.taskHistoryService = taskHistoryService;
-        this.taskHistoryRepository = taskHistoryRepository;
+        this.chatService = chatService;
     }
 
     @Transactional(readOnly = true)
@@ -63,120 +74,93 @@ public class TaskService {
     }
 
     @Transactional
-    public Task createTask(String title, String description, Long columnId, Long assigneeId, 
-                         String startDate, String endDate, String tagName) {
-        return createTask(title, description, columnId, assigneeId, startDate, endDate, tagName, null);
+    public Task createTask(CreateTaskDTO task, User initiator) throws Exception{
+        if (task.getColumnId() == null) {
+            logger.error("Пустая колонка");
+            throw new Exception("Пустая колонка");
+        }
+        DashBoardColumn column = dashBoardColumnRepository.findById(task.getColumnId()).orElse(null);
+        if (column == null) {
+            throw new Exception("Колонка не существует");
+        }
+        if (!column.getBoardId().equals(task.getBoardId())) {
+            throw new Exception("Не совпадает id доски в запросе и id доски у колонки");
+        }
+        if (!boardRightService.hasBoardRight(task.getBoardId(), initiator.getId(), BoardRight.CREATE_TASKS)) {
+            throw new Exception("Нету прав на создание задач");
+        }
+
+        Task newTask = new Task();
+        newTask.setColumn(column);
+        newTask.setTitle(task.getTitle());
+        newTask.setDescription(task.getDescription());
+        if(task.getStartDate() != null) {
+            newTask.setStartDate(task.getStartDate());
+        }
+        if(task.getEndDate() != null) {
+            newTask.setEndDate(task.getEndDate());
+        }
+        if(task.getTagId() != null) {
+            Optional<Tag> tagOpt = tagRepository.findById(task.getTagId());
+            if (tagOpt.isEmpty()) {
+                throw new Exception("Тега с таким id не существует");
+            }
+            newTask.setTag(tagOpt.get());
+        }
+        if (task.getParticipants() != null && !task.getParticipants().isEmpty()) {
+            Set<User> participants = new HashSet<>();
+            for (Long participantId : task.getParticipants()) {
+                User user = userRepository.findById(participantId).orElse(null);
+                if (user == null) {
+                    throw new Exception("Участник не найден");
+                }
+                participants.add(user);
+            }
+            newTask.setParticipants(participants);
+        }
+
+        if (task.getChecklist() != null && !task.getChecklist().isEmpty()) {
+            List<ChecklistItem> checklist = new ArrayList<>();
+            int counter = 1;
+            for (ChecklistItemDTO checklistItemDTO : task.getChecklist()) {
+                ChecklistItem checklistItem = new ChecklistItem();
+                checklistItem.setTask(newTask);
+                checklistItem.setPosition(counter);
+                counter++;
+                checklistItem.setCompleted(false);
+                checklistItem.setText(checklistItemDTO.getText());
+                checklist.add(checklistItem);
+            }
+            newTask.setChecklist(checklist);
+        }
+        taskHistoryService.recordTaskCreation(initiator, newTask);
+        CreateGroupChatDTO chatDTO = new CreateGroupChatDTO();
+        chatDTO.setName(task.getTitle());
+        chatDTO.setParticipantIds(task.getParticipants());
+        Chat chat = chatService.createGroupChatForTask(chatDTO, initiator);
+        newTask.setChat(chat);
+        return taskRepository.save(newTask);
     }
+
 
     @Transactional
-    public Task createTask(String title, String description, Long columnId, Long assigneeId, 
-                          String startDate, String endDate, String tagName, Long boardId) {
-        DashBoardColumn column = columnRepository.findById(columnId)
-                .orElseThrow(() -> new RuntimeException("Column not found with id: " + columnId));
-
-        Task task = new Task(title, description, column);
-        logger.info("Creating task with title: {}, in column: {}", title, columnId);
-        
-        if (assigneeId != null) {
-            User assignee = userRepository.findById(assigneeId)
-                    .orElseThrow(() -> new RuntimeException("User not found with id: " + assigneeId));
-            task.addParticipant(assignee);
-        }
-        
-        if (startDate != null && !startDate.isEmpty()) {
-            task.setStartDate(LocalDateTime.parse(startDate, DateTimeFormatter.ISO_DATE_TIME));
-        }
-        
-        if (endDate != null && !endDate.isEmpty()) {
-            task.setEndDate(LocalDateTime.parse(endDate, DateTimeFormatter.ISO_DATE_TIME));
-        }
-        
-        if (tagName != null && !tagName.isEmpty()) {
-            logger.info("Looking for tag with name: {}", tagName);
-            
-            // Try first with provided boardId
-            if (boardId != null) {
-                logger.info("Searching for tag using explicit boardId: {}", boardId);
-                Optional<Tag> tagByExplicitBoardId = tagRepository.findByNameAndBoardId(tagName, boardId);
-                if (tagByExplicitBoardId.isPresent()) {
-                    logger.info("Found tag by explicit boardId: {}", tagByExplicitBoardId.get().getId());
-                    task.setTag(tagByExplicitBoardId.get());
-                    return saveAndLogTask(task);
-                }
+    public Task createTask(CreateTaskDTO task, User initiator, List<MultipartFile> files) throws Exception {
+        Task newTask = createTask(task, initiator);
+        if (files != null && !files.isEmpty()) {
+            logger.info("Processing {} file attachments", files.size());
+            List<Attachment> attachments = new ArrayList<>();
+            for (MultipartFile file : files) {
+                Attachment attachment = attachmentService.uploadAttachment(
+                        newTask.getId(),
+                        file,
+                        initiator.getUsername()
+                );
+                attachments.add(attachment);
             }
-            
-            // Try with board from column
-            Long columnBoardId = column.getBoard().getId();
-            logger.info("Board ID from column: {}", columnBoardId);
-            
-            // Search by name and board ID
-            Optional<Tag> tagByColumnBoardId = tagRepository.findByNameAndBoardId(tagName, columnBoardId);
-            
-            if (tagByColumnBoardId.isPresent()) {
-                logger.info("Found tag by column's boardId: {}", tagByColumnBoardId.get().getId());
-                task.setTag(tagByColumnBoardId.get());
-            } else {
-                // Fallback to find by just name
-                Optional<Tag> tagByName = tagRepository.findByName(tagName);
-                if (tagByName.isPresent()) {
-                    logger.info("Found tag by name only: {}", tagByName.get().getId());
-                    task.setTag(tagByName.get());
-                } else {
-                    logger.warn("No tag found with name: {} for board: {}", tagName, columnBoardId);
-                    // No matching tag found, create a new one for the board
-                    Tag newTag = new Tag(tagName, generateRandomColor(), column.getBoard());
-                    column.getBoard().addTag(newTag);
-                    tagRepository.save(newTag);
-                    task.setTag(newTag);
-                    logger.info("Created new tag: {}", newTag.getId());
-                }
-            }
+            newTask.setAttachments(attachments);
         }
-        
-        // Set position to last in the column
-        List<Task> tasks = taskRepository.findByColumnOrderByPosition(column);
-        task.setPosition(tasks.size());
-        
-        return saveAndLogTask(task);
+        return taskRepository.save(newTask);
     }
-
-    @Transactional
-    public Task createTaskWithTagId(String title, String description, Long columnId, Long assigneeId, 
-                                   String startDate, String endDate, Long tagId) {
-        DashBoardColumn column = columnRepository.findById(columnId)
-                .orElseThrow(() -> new RuntimeException("Column not found with id: " + columnId));
-
-        Task task = new Task(title, description, column);
-        logger.info("Creating task with title: {}, in column: {}, tagId: {}", title, columnId, tagId);
-        
-        if (assigneeId != null) {
-            User assignee = userRepository.findById(assigneeId)
-                    .orElseThrow(() -> new RuntimeException("User not found with id: " + assigneeId));
-            task.addParticipant(assignee);
-        }
-        
-        if (startDate != null && !startDate.isEmpty()) {
-            task.setStartDate(LocalDateTime.parse(startDate, DateTimeFormatter.ISO_DATE_TIME));
-        }
-        
-        if (endDate != null && !endDate.isEmpty()) {
-            task.setEndDate(LocalDateTime.parse(endDate, DateTimeFormatter.ISO_DATE_TIME));
-        }
-        
-        if (tagId != null) {
-            tagRepository.findById(tagId).ifPresent(tag -> {
-                logger.info("Found tag with id: {}", tagId);
-                task.setTag(tag);
-            });
-        }
-        
-        // Set position to last in the column
-        List<Task> tasks = taskRepository.findByColumnOrderByPosition(column);
-        task.setPosition(tasks.size());
-        
-        return saveAndLogTask(task);
-    }
-
     @Transactional
     public Task updateTask(Long taskId, String title, String description, Integer position, 
                          Long columnId, String tagName, String startDate, String endDate) {

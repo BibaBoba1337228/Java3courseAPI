@@ -1,6 +1,7 @@
 package course.project.API.services;
 
 import course.project.API.dto.websocket.WebSocketMessage;
+import course.project.API.dto.websocket.WebSocketMessageViaObject;
 import course.project.API.models.User;
 import course.project.API.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,10 +30,16 @@ public class WebSocketService {
     /**
      * Отправляет сообщение всем клиентам, подключенным к конкретной доске
      */
+    public void sendMessageToBoard(Long boardId, String type, Object payload) {
+        WebSocketMessageViaObject message = new WebSocketMessageViaObject(type, payload);
+        messagingTemplate.convertAndSend("/topic/boards/" + boardId, message);
+    }
+
     public void sendMessageToBoard(Long boardId, String type, Map<String, Object> payload) {
         WebSocketMessage message = new WebSocketMessage(type, payload);
         messagingTemplate.convertAndSend("/topic/boards/" + boardId, message);
     }
+
 
     /**
      * Отправляет личное сообщение конкретному пользователю

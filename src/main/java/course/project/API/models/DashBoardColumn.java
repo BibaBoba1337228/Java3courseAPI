@@ -23,7 +23,7 @@ public class DashBoardColumn {
     @JsonBackReference
     private Board board;
     
-    @Transient
+    @Column(name = "board_id", updatable = false, insertable = false)
     private Long boardId;
 
     @OneToMany(mappedBy = "column", cascade = CascadeType.ALL, orphanRemoval = true)

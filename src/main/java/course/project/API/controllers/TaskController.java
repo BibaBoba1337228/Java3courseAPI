@@ -1,15 +1,15 @@
 package course.project.API.controllers;
 
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import course.project.API.dto.SimpleDTO;
+import course.project.API.dto.board.*;
+import course.project.API.dto.chat.ChatWithLastMessageDTO;
+import course.project.API.dto.chatSocket.ChatSocketEventDTO;
 import course.project.API.models.*;
 import course.project.API.repositories.UserRepository;
 import course.project.API.services.*;
 import course.project.API.repositories.TagRepository;
-import course.project.API.repositories.AttachmentRepository;
-import course.project.API.dto.board.TaskDTO;
-import course.project.API.dto.board.TagDTO;
-import course.project.API.dto.board.ChecklistItemDTO;
-import course.project.API.dto.board.AttachmentDTO;
-import course.project.API.dto.board.TaskSearchRequest;
 import course.project.API.dto.user.UserResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -22,10 +22,6 @@ import org.springframework.web.multipart.MultipartFile;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.transaction.PlatformTransactionManager;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,49 +44,37 @@ public class TaskController {
     private final ChecklistItemService checklistItemService;
     private final TagRepository tagRepository;
     private final TagService tagService;
-    private final AttachmentRepository attachmentRepository;
     private final BoardRightService boardRightService;
     private final WebSocketService webSocketService;
     private final String baseUrl;
     private final BoardService boardService;
-    private final ProjectService projectService;
     private final ProjectRightService projectRightService;
     private final TaskHistoryService taskHistoryService;
     private final AttachmentService attachmentService;
-    private final TransactionTemplate transactionTemplate;
-
-    @PersistenceContext
-    private EntityManager entityManager;
 
     @Autowired
-    public TaskController(TaskService taskService, UserRepository userRepository, 
-                          ChecklistItemService checklistItemService, 
+    public TaskController(TaskService taskService, UserRepository userRepository,
+                          ChecklistItemService checklistItemService,
                           TagRepository tagRepository,
                           TagService tagService,
-                          AttachmentRepository attachmentRepository,
                           BoardRightService boardRightService,
                           WebSocketService webSocketService,
                           BoardService boardService,
-                          ProjectService projectService,
                           ProjectRightService projectRightService,
                           TaskHistoryService taskHistoryService,
-                          AttachmentService attachmentService,
-                          PlatformTransactionManager transactionManager) {
+                          AttachmentService attachmentService) {
         this.taskService = taskService;
         this.userRepository = userRepository;
         this.checklistItemService = checklistItemService;
         this.tagRepository = tagRepository;
         this.tagService = tagService;
-        this.attachmentRepository = attachmentRepository;
         this.boardRightService = boardRightService;
         this.webSocketService = webSocketService;
         this.baseUrl = "http://localhost:8080";
         this.boardService = boardService;
-        this.projectService = projectService;
         this.projectRightService = projectRightService;
         this.taskHistoryService = taskHistoryService;
         this.attachmentService = attachmentService;
-        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     // Обновляем метод convertToTaskDTO для возможности принудительного чтения вложений
@@ -281,349 +265,134 @@ public class TaskController {
     }
 
     @PostMapping
-    public ResponseEntity<TaskDTO> createTask(
-            @RequestBody Map<String, Object> payload,
+    public ResponseEntity<?> createTask(
+            @RequestBody CreateTaskDTO task,
             @AuthenticationPrincipal User currentUser) {
-        logger.info("Received task creation payload: {}", payload);
-        
-        Long columnId = safeParseLong(payload.get("columnId"));
-        if (columnId == null) {
-            logger.error("Invalid columnId in task creation payload: {}", payload.get("columnId"));
-            return ResponseEntity.badRequest().body(null);
-        }
-        
-        // Get board ID for permission check
-        DashBoardColumn column = taskService.getColumnById(columnId);
-        if (column == null) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        Long boardId = column.getBoard().getId();
-        
-        // Check if user has CREATE_TASKS right on the board
-        if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_TASKS)) {
-            return ResponseEntity.status(403).body(null);
-        }
-        
+        logger.info("Новая задача: {}", task);
         try {
-        String title = safeStringValue(payload.get("title"));
-        String description = payload.containsKey("description") ? 
-                safeStringValue(payload.get("description")) : "";
-        Integer position = payload.containsKey("position") ? 
-                safeParseInteger(payload.get("position")) : 0;
-                
-        // Парсим даты, если они есть
-        String startDate = payload.containsKey("startDate") ? 
-                safeStringValue(payload.get("startDate")) : null;
-        String endDate = payload.containsKey("endDate") ? 
-                safeStringValue(payload.get("endDate")) : null;
-                
-        Task task;
-        
-        // Check if we have a tag ID or tag name
-        if (payload.containsKey("tagId")) {
-            Long tagId = safeParseLong(payload.get("tagId"));
-            if (tagId != null) {
-                logger.info("Creating task with tag ID: {}", tagId);
-                    task = taskService.createTaskWithTagId(title, description, columnId, currentUser.getId(), startDate, endDate, tagId);
-            } else {
-                logger.info("Tag ID is null or invalid, creating task without tag");
-                    task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, null, boardId);
+            Task newTask = taskService.createTask(task, currentUser);
+            TaskDTO taskDTO = new TaskDTO();
+            taskDTO.setId(newTask.getId());
+            taskDTO.setTitle(newTask.getTitle());
+            taskDTO.setDescription(newTask.getDescription());
+            taskDTO.setColumnId(task.getColumnId());
+            taskDTO.setBoardId(task.getBoardId());
+            taskDTO.setStartDate(newTask.getStartDate());
+            taskDTO.setEndDate(newTask.getEndDate());
+            taskDTO.setPosition(newTask.getPosition());
+            taskDTO.setParticipants(newTask.getParticipants().stream().map(user -> new UserResponse(
+                    user.getId(),
+                    user.getName(),
+                    user.getAvatarURL()
+            )).collect(Collectors.toSet()));
+            taskDTO.setChatId(newTask.getChat().getId());
+            if (task.getTagId() != null) {
+                Tag tag = newTask.getTag();
+                taskDTO.setTag(new TagDTO(tag.getId(), tag.getName(), tag.getColor()));
             }
-        } else {
-            // Парсим тег, если он есть (по имени)
-            String tagName = payload.containsKey("tags") ? 
-                    safeStringValue(payload.get("tags")) : null;
-            
-            logger.info("Processing tag: {}, boardId: {}", tagName, boardId);
-            
-            if (tagName != null && !tagName.isEmpty() && boardId != null) {
-                logger.info("Available tags for boardId {}: {}", 
-                    boardId, tagRepository.findByBoardId(boardId));
-            }
-            
-            // Создаем задачу с использованием boardId для тегов
-                task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, tagName, boardId);
-        }
-        
-        logger.info("Created task: {}, tag: {}", task.getId(), task.getTag());
-        
-        // Добавляем участников, если они есть
-        if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
-            List<Object> participants = (List<Object>) payload.get("participants");
-            logger.info("Processing participants: {}", participants);
-
-            for (Object participant : participants) {
-                if (participant instanceof Number) {
-                    Long userId = ((Number) participant).longValue();
-                    userRepository.findById(userId).ifPresent(user -> {
-                        task.addParticipant(user);
-                        logger.info("Added participant by ID: {}", userId);
-                    });
-                } else {
-                    String username = extractUsername(participant);
-                    logger.info("Extracted username: {}", username);
-
-                    if (username != null) {
-                        userRepository.findByUsername(username).ifPresent(user -> {
-                            task.addParticipant(user);
-                            logger.info("Added participant by username: {}", username);
-                        });
-                    }
+            if (task.getChecklist() != null && !task.getChecklist().isEmpty()) {
+                List<ChecklistItemDTO> checklist = new ArrayList<>();
+                for (ChecklistItem checklistItem : newTask.getChecklist()) {
+                    ChecklistItemDTO checklistItemDTO = new ChecklistItemDTO(
+                            checklistItem.getId(),
+                            checklistItem.getText(),
+                            false,
+                            checklistItem.getPosition()
+                    );
+                    checklist.add(checklistItemDTO);
                 }
+                taskDTO.setChecklist(checklist);
             }
-        }
-        
-        // Добавляем элементы чеклиста, если они есть
-        if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
-            List<Object> checklistItems = (List<Object>) payload.get("checklist");
-            logger.info("Processing checklist items: {}", checklistItems);
-            
-            for (int i = 0; i < checklistItems.size(); i++) {
-                final int position_i = i;  // Make effectively final for lambda
-                if (checklistItems.get(i) instanceof Map) {
-                    Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
-                    String text = safeStringValue(item.get("text"));
-                    boolean completed = item.containsKey("completed") && 
-                            Boolean.parseBoolean(safeStringValue(item.get("completed")));
-                    
-                    logger.info("Creating checklist item: {}, completed: {}, position: {}", text, completed, position_i);
-                    ChecklistItem checklistItem = checklistItemService.createChecklistItem(task.getId(), text, position_i);
-                    
-                    if (completed) {
-                        checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
-                        logger.info("Updated checklist item completed status: {}", checklistItem.getId());
-                    }
-                } else {
-                    logger.warn("Checklist item at position {} is not a map: {}", position_i, checklistItems.get(position_i));
-                }
+
+            Chat chat = newTask.getChat();
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(new ChatWithLastMessageDTO(chat.getId(), task.getTitle(), true, null ,null), currentUser.getId());
+            for (User user : newTask.getParticipants()) {
+                webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
             }
-        }
-        
-            // Process attachments (just logging, actual upload is separate)
-        if (payload.containsKey("attachments") && payload.get("attachments") instanceof List) {
-            List<Object> attachments = (List<Object>) payload.get("attachments");
-            logger.info("Processing attachments: {}", attachments);
-            
-            if (!attachments.isEmpty()) {
-                logger.info("Attachment data was provided in task creation, but file upload is required.");
-                logger.info("To add attachments, use the API: POST /api/attachments/upload with taskId={}, file and uploadedBy", task.getId());
-            }
-        }
-        
-            // Save the task
-            Task finalTask = taskService.saveAndLogTask(task);
-            
-            // Record task history in a separate transaction
-            try {
-                taskHistoryService.recordTaskCreation(currentUser, finalTask);
-            } catch (Exception e) {
-                logger.error("Failed to record task history: {}", e.getMessage(), e);
-                // We continue even if history recording fails - this shouldn't stop task creation
-            }
-            
-            // Convert to TaskDTO
-            TaskDTO taskDTO = convertToTaskDTO(finalTask, boardId);
-            
-            // Notify via WebSocket
-            Map<String, Object> notificationPayload = new HashMap<>();
-            notificationPayload.put("id", taskDTO.getId());
-            notificationPayload.put("title", taskDTO.getTitle());
-            notificationPayload.put("description", taskDTO.getDescription());
-            notificationPayload.put("columnId", taskDTO.getColumnId());
-            notificationPayload.put("startDate", taskDTO.getStartDate());
-            notificationPayload.put("endDate", taskDTO.getEndDate());
-            notificationPayload.put("position", taskDTO.getPosition());
-            notificationPayload.put("participants", taskDTO.getParticipants());
-            notificationPayload.put("tag", taskDTO.getTag());
-            notificationPayload.put("checklist", taskDTO.getChecklist());
-            notificationPayload.put("attachments", taskDTO.getAttachments());
-            
-            webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
-            
+            webSocketService.sendMessageToBoard(task.getBoardId(), "TASK_CREATED", taskDTO);
             return ResponseEntity.status(HttpStatus.CREATED).body(taskDTO);
+
         } catch (Exception e) {
-            logger.error("Error creating task: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            logger.error("ошибка при создании задачи: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(new SimpleDTO(e.getMessage()));
         }
     }
 
     @PostMapping(consumes = "multipart/form-data")
-    public ResponseEntity<TaskDTO> createTaskWithAttachments(
-            @RequestParam("payload") String payloadStr,
-            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+    public ResponseEntity<?> createTaskWithAttachments(
+            @RequestPart("payload") String payloadJson,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
             @AuthenticationPrincipal User currentUser) {
         try {
-            // Convert JSON string to Map
             ObjectMapper objectMapper = new ObjectMapper();
-            Map<String, Object> payload = objectMapper.readValue(payloadStr, new TypeReference<Map<String, Object>>() {});
-            
-            logger.info("Received task creation payload: {}", payload);
-            
-            Long columnId = safeParseLong(payload.get("columnId"));
-            if (columnId == null) {
-                logger.error("Invalid columnId in task creation payload: {}", payload.get("columnId"));
-                return ResponseEntity.badRequest().body(null);
-            }
-            
-            // Get board ID for permission check
-            DashBoardColumn column = taskService.getColumnById(columnId);
-            if (column == null) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            Long boardId = column.getBoard().getId();
-            
-            // Check if user has CREATE_TASKS right on the board
-            if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.CREATE_TASKS)) {
-                return ResponseEntity.status(403).body(null);
-            }
-            
-            String title = safeStringValue(payload.get("title"));
-            String description = payload.containsKey("description") ? 
-                    safeStringValue(payload.get("description")) : "";
-            Integer position = payload.containsKey("position") ? 
-                    safeParseInteger(payload.get("position")) : 0;
-                    
-            // Парсим даты, если они есть
-            String startDate = payload.containsKey("startDate") ? 
-                    safeStringValue(payload.get("startDate")) : null;
-            String endDate = payload.containsKey("endDate") ? 
-                    safeStringValue(payload.get("endDate")) : null;
-                    
-            Task task;
-            
-            // Check if we have a tag ID or tag name
-            if (payload.containsKey("tagId")) {
-                Long tagId = safeParseLong(payload.get("tagId"));
-                if (tagId != null) {
-                    logger.info("Creating task with tag ID: {}", tagId);
-                        task = taskService.createTaskWithTagId(title, description, columnId, currentUser.getId(), startDate, endDate, tagId);
-                } else {
-                    logger.info("Tag ID is null or invalid, creating task without tag");
-                        task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, null, boardId);
-                }
-            } else {
-                // Парсим тег, если он есть (по имени)
-                String tagName = payload.containsKey("tags") ? 
-                        safeStringValue(payload.get("tags")) : null;
-                
-                logger.info("Processing tag: {}, boardId: {}", tagName, boardId);
-                
-                if (tagName != null && !tagName.isEmpty() && boardId != null) {
-                    logger.info("Available tags for boardId {}: {}", 
-                        boardId, tagRepository.findByBoardId(boardId));
-                }
-                
-                // Создаем задачу с использованием boardId для тегов
-                    task = taskService.createTask(title, description, columnId, currentUser.getId(), startDate, endDate, tagName, boardId);
-            }
-            
-            logger.info("Created task: {}, tag: {}", task.getId(), task.getTag());
-            
-            // Добавляем участников, если они есть
-            if (payload.containsKey("participants") && payload.get("participants") instanceof List) {
-                List<Object> participants = (List<Object>) payload.get("participants");
-                logger.info("Processing participants: {}", participants);
+            objectMapper.registerModule(new JavaTimeModule());
+            objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            CreateTaskDTO task = objectMapper.readValue(payloadJson, CreateTaskDTO.class);
 
-                for (Object participant : participants) {
-                    if (participant instanceof Number) {
-                        Long userId = ((Number) participant).longValue();
-                        userRepository.findById(userId).ifPresent(user -> {
-                            task.addParticipant(user);
-                            logger.info("Added participant by ID: {}", userId);
-                        });
-                    } else {
-                        String username = extractUsername(participant);
-                        logger.info("Extracted username: {}", username);
-
-                        if (username != null) {
-                            userRepository.findByUsername(username).ifPresent(user -> {
-                                task.addParticipant(user);
-                                logger.info("Added participant by username: {}", username);
-                            });
-                        }
-                    }
-                }
+            Task newTask = taskService.createTask(task, currentUser, files);
+            TaskDTO taskDTO = new TaskDTO();
+            taskDTO.setId(newTask.getId());
+            taskDTO.setTitle(newTask.getTitle());
+            taskDTO.setDescription(newTask.getDescription());
+            taskDTO.setColumnId(task.getColumnId());
+            taskDTO.setBoardId(task.getBoardId());
+            taskDTO.setStartDate(newTask.getStartDate());
+            taskDTO.setEndDate(newTask.getEndDate());
+            taskDTO.setPosition(newTask.getPosition());
+            taskDTO.setParticipants(newTask.getParticipants().stream().map(user -> new UserResponse(
+                    user.getId(),
+                    user.getName(),
+                    user.getAvatarURL()
+            )).collect(Collectors.toSet()));
+            if (task.getTagId() != null) {
+                Tag tag = newTask.getTag();
+                taskDTO.setTag(new TagDTO(tag.getId(), tag.getName(), tag.getColor()));
             }
-            
-            // Добавляем элементы чеклиста, если они есть
-            if (payload.containsKey("checklist") && payload.get("checklist") instanceof List) {
-                List<Object> checklistItems = (List<Object>) payload.get("checklist");
-                logger.info("Processing checklist items: {}", checklistItems);
-                
-                for (int i = 0; i < checklistItems.size(); i++) {
-                    final int position_i = i;  // Make effectively final for lambda
-                    if (checklistItems.get(i) instanceof Map) {
-                        Map<String, Object> item = (Map<String, Object>) checklistItems.get(i);
-                        String text = safeStringValue(item.get("text"));
-                        boolean completed = item.containsKey("completed") && 
-                                          Boolean.parseBoolean(safeStringValue(item.get("completed")));
-                        
-                        logger.info("Creating checklist item: {}, completed: {}, position: {}", text, completed, position_i);
-                        ChecklistItem checklistItem = checklistItemService.createChecklistItem(task.getId(), text, position_i);
-                        
-                        if (completed) {
-                            checklistItemService.updateChecklistItem(checklistItem.getId(), null, true, null);
-                        }
-                    } else {
-                        logger.warn("Checklist item at position {} is not a map: {}", position_i, checklistItems.get(position_i));
-                    }
+            if (task.getChecklist() != null && !task.getChecklist().isEmpty()) {
+                List<ChecklistItemDTO> checklist = new ArrayList<>();
+                for (ChecklistItem checklistItem : newTask.getChecklist()) {
+                    ChecklistItemDTO checklistItemDTO = new ChecklistItemDTO(
+                            checklistItem.getId(),
+                            checklistItem.getText(),
+                            false,
+                            checklistItem.getPosition()
+                    );
+                    checklist.add(checklistItemDTO);
                 }
+                taskDTO.setChecklist(checklist);
             }
-            
-            // Save the task first to get its ID
-            Task savedTask = taskService.saveAndLogTask(task);
-            
-            // Process file attachments
             if (files != null && !files.isEmpty()) {
-                logger.info("Processing {} file attachments", files.size());
-                for (MultipartFile file : files) {
-                    try {
-                        Attachment attachment = attachmentService.uploadAttachment(
-                            savedTask.getId(),
-                            file,
-                            currentUser.getUsername()
-                        );
-                        logger.info("Added attachment: {}", attachment.getFileName());
-                    } catch (IOException e) {
-                        logger.error("Failed to upload attachment: {}", e.getMessage(), e);
-                    }
+                List<AttachmentDTO> attachments = new ArrayList<>();
+
+                for (Attachment attachment : newTask.getAttachments()) {
+                    AttachmentDTO attachmentDto = new AttachmentDTO(
+                            attachment.getId(),
+                            attachment.getFileName(),
+                            null,
+                            attachment.getFileType(),
+                            attachment.getFileSize(),
+                            attachment.getUploadedBy(),
+                            attachment.getUploadedAt()
+                    );
+                    attachmentDto.setDownloadUrl("http://localhost:8080/api/attachments/" + attachment.getId() + "/download");
+                    attachments.add(attachmentDto);
                 }
+                taskDTO.setAttachments(attachments);
             }
-            
-            // Record task history in a separate transaction
-            try {
-                taskHistoryService.recordTaskCreation(currentUser, savedTask);
-            } catch (Exception e) {
-                logger.error("Failed to record task history: {}", e.getMessage(), e);
-                // We continue even if history recording fails - this shouldn't stop task creation
+            webSocketService.sendMessageToBoard(task.getBoardId(), "TASK_CREATED", taskDTO);
+            Chat chat = newTask.getChat();
+            ChatSocketEventDTO event = ChatSocketEventDTO.chatCreated(new ChatWithLastMessageDTO(chat.getId(), task.getTitle(), true, null ,null), currentUser.getId());
+            for (User user : newTask.getParticipants()) {
+                webSocketService.sendPrivateMessageToUser(user.getUsername(), event);
             }
-            
-            // Важно: теперь используем версию с принудительной загрузкой вложений
-            TaskDTO taskDTO = convertToTaskDTO(savedTask, boardId, true);
-            
-            // Notify via WebSocket
-            Map<String, Object> notificationPayload = new HashMap<>();
-            notificationPayload.put("id", taskDTO.getId());
-            notificationPayload.put("title", taskDTO.getTitle());
-            notificationPayload.put("description", taskDTO.getDescription());
-            notificationPayload.put("columnId", taskDTO.getColumnId());
-            notificationPayload.put("startDate", taskDTO.getStartDate());
-            notificationPayload.put("endDate", taskDTO.getEndDate());
-            notificationPayload.put("position", taskDTO.getPosition());
-            notificationPayload.put("participants", taskDTO.getParticipants());
-            notificationPayload.put("tag", taskDTO.getTag());
-            notificationPayload.put("checklist", taskDTO.getChecklist());
-            notificationPayload.put("attachments", taskDTO.getAttachments());
-            
-            webSocketService.sendMessageToBoard(boardId, "TASK_CREATED", notificationPayload);
-            
+            webSocketService.sendMessageToBoard(task.getBoardId(), "TASK_CREATED", taskDTO);
             return ResponseEntity.status(HttpStatus.CREATED).body(taskDTO);
         } catch (Exception e) {
-            logger.error("Error creating task with attachments: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            logger.error("ошибка при создании задачи c вложениями: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(new SimpleDTO(e.getMessage()));
+
         }
+
     }
 
     @PutMapping("/{taskId}")
@@ -1239,7 +1008,6 @@ public class TaskController {
             @PathVariable Long userId,
             @AuthenticationPrincipal User currentUser) {
         
-        // Get the task to check permissions
         Task task = taskService.getTaskById(taskId).orElse(null);
         if (task == null) {
             return ResponseEntity.notFound().build();
@@ -1247,7 +1015,6 @@ public class TaskController {
         
         Long boardId = task.getColumn().getBoard().getId();
         
-        // Check if user has EDIT_TASKS right on the board
         if (!boardRightService.hasBoardRight(boardId, currentUser.getId(), BoardRight.EDIT_TASKS)) {
             return ResponseEntity.status(403).body(null);
         }
